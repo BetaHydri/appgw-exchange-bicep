@@ -27,16 +27,16 @@ Internet
 │  ├─ Allow 65200-65535 from GatewayMgr    │
 │  └─ Allow * from AzureLoadBalancer       │
 ├──────────────────────────────────────────┤
-│  Subnet (e.g. 10.0.3.0/24)              │
+│  Subnet (e.g. 10.0.3.0/24)               │
 │  ┌────────────────────────────────────┐  │
-│  │  Application Gateway (WAF v2)     │  │
-│  │  ├─ Listener: mail FQDN           │  │
-│  │  ├─ Listener: autodiscover FQDN   │  │
-│  │  ├─ WAF Policy (OWASP 3.2)        │  │
-│  │  │   ├─ Allow /EWS/               │  │
-│  │  │   └─ Allow /Autodiscover/      │  │
-│  │  ├─ Probe: /EWS/Exchange.asmx     │  │
-│  │  └─ Probe: /Autodiscover/...xml   │  │
+│  │  Application Gateway (WAF v2)      │  │
+│  │  ├─ Listener: mail FQDN            │  │
+│  │  ├─ Listener: autodiscover FQDN    │  │
+│  │  ├─ WAF Policy (OWASP 3.2)         │  │
+│  │  │   ├─ Allow /EWS/                │  │
+│  │  │   └─ Allow /Autodiscover/       │  │
+│  │  ├─ Probe: /EWS/Exchange.asmx      │  │
+│  │  └─ Probe: /Autodiscover/...xml    │  │
 │  └────────────────────────────────────┘  │
 └──────────────────────────────────────────┘
        │ :443 (re-encrypt)
