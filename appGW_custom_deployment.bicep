@@ -9,7 +9,7 @@
 // - WAF policy with custom Allow rules for EWS and Autodiscover paths
 // - Diagnostic settings to send WAF and Access logs to a Log Analytics Workspace
 //
-// Note: This module assumes the VNet already exists. The subnet is created automatically.
+// Note: If the VNet is not pre-created, this module will create it automatically.
 // Author: Jan Tiedemann (Microsoft Germany) - 2026-06
 // ------------------------------------------------------------------------------
 
