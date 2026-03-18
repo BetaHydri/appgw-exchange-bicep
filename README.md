@@ -4,7 +4,7 @@
 ![Azure](https://img.shields.io/badge/Azure-Application%20Gateway%20WAF%20v2-0078D4?logo=microsoftazure)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-Bicep modules to deploy an **Azure Application Gateway (WAF v2)** with HTTPS termination for on-premises Microsoft Exchange servers. Includes NSG hardening, dual-listener routing (mail + autodiscover), and diagnostic logging.
+Bicep modules to deploy an **Azure Application Gateway (WAF v2)** that enables **Microsoft Teams** to securely access **Exchange Free/Busy** (calendar availability) information via the **EWS endpoint** and **Autodiscover** to locate mailboxes and calendars on on-premises Exchange servers. Includes NSG hardening, dual-listener routing (mail + autodiscover), and diagnostic logging.
 
 **Author:** Jan Tiedemann (Microsoft Germany)
 
