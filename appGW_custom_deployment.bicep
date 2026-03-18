@@ -39,7 +39,7 @@ param nsgName string = 'nsg-appgw'
 @description('Name of the public IP resource for the Application Gateway frontend.')
 param publicIpName string = 'pip-appgw'
 
-@description('Array of private IP addresses of the Exchange backend servers ["10.0.3.10","10.0.3.11"].')
+@description('Array of private IP addresses of the Exchange backend servers, e.g. 10.0.3.10, 10.0.3.11.')
 param exchangeBackendIPs array = []
 
 @description('Public FQDN for mail access, e.g. mail.contoso.com. Must match the SSL certificate (SAN).')

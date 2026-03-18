@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "14030235468280054569"
+      "templateHash": "5701449946625459648"
     }
   },
   "parameters": {
@@ -66,7 +66,7 @@
       "type": "array",
       "defaultValue": [],
       "metadata": {
-        "description": "Array of private IP addresses of the Exchange backend servers [\"10.0.3.10\",\"10.0.3.11\"]."
+        "description": "Array of private IP addresses of the Exchange backend servers, e.g. 10.0.3.10, 10.0.3.11."
       }
     },
     "mailFqdn": {
