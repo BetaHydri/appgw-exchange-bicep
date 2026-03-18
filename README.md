@@ -10,6 +10,17 @@ Bicep modules to deploy an **Azure Application Gateway (WAF v2)** that enables *
 
 ---
 
+## Deploy to Azure
+
+| Variant | Deploy |
+|---------|--------|
+| **Key Vault** (recommended) | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBetaHydri%2Fappgw-exchange-bicep%2Fmain%2FappGW_custom_deployment_kv.json) |
+| **Inline certificate** | [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBetaHydri%2Fappgw-exchange-bicep%2Fmain%2FappGW_custom_deployment.json) |
+
+> **Note:** The buttons link to the pre-compiled ARM (JSON) templates in this repository. The Azure Portal will prompt you for all required parameters.
+
+---
+
 ## Architecture
 
 ```text
