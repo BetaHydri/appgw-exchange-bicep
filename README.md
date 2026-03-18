@@ -105,11 +105,11 @@ Internet
 | `certExpiryNotificationEmail` | **Yes** | — | Email for cert expiry alerts |
 | `location` | No | Resource group location | Azure region |
 | `appGwName` | No | `appgw-exchange` | Application Gateway name |
-| `appGwSubnetName` | No | `BYCLTE-appGW` | Subnet name |
+| `appGwSubnetName` | No | `netenv-appGW` | Subnet name |
 | `nsgName` | No | `nsg-appgw` | NSG name |
 | `publicIpName` | No | `pip-appgw` | Public IP name |
 | `logAnalyticsWorkspaceName` | No | `law-appgw` | Log Analytics Workspace name |
-| `keyVaultName` | No | `byclte-kv-appgw` | Key Vault name |
+| `keyVaultName` | No | `netenv-kv-appgw` | Key Vault name |
 | `managedIdentityName` | No | `id-appgw` | Managed Identity name |
 | `keyVaultCertificateName` | No | `exchange-cert` | Certificate name in Key Vault |
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |

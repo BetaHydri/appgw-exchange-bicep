@@ -30,7 +30,7 @@ param vnetName string
 param vnetResourceGroupName string
 
 @description('Name of the subnet for the Application Gateway. Will be created (or updated) in the VNet during deployment.')
-param appGwSubnetName string = 'BYCLTE-appGW'
+param appGwSubnetName string = 'netenv-appGW'
 
 @description('Address prefix (CIDR) of the Application Gateway subnet, e.g. 10.0.3.0/24.')
 param appGwSubnetAddressPrefix string
@@ -54,7 +54,7 @@ param autodiscoverFqdn string = ''
 param logAnalyticsWorkspaceName string = 'law-appgw'
 
 @description('Name of the Azure Key Vault to store the SSL certificate.')
-param keyVaultName string = 'byclte-kv-appgw'
+param keyVaultName string = 'netenv-kv-appgw'
 
 @description('Name of the User-Assigned Managed Identity for the Application Gateway.')
 param managedIdentityName string = 'id-appgw'
