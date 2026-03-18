@@ -6,6 +6,8 @@
 
 Bicep modules to deploy an **Azure Application Gateway (WAF v2)** with HTTPS termination for on-premises Microsoft Exchange servers. Includes NSG hardening, dual-listener routing (mail + autodiscover), and diagnostic logging.
 
+**Author:** Jan Tiedemann (Microsoft Germany)
+
 ---
 
 ## Architecture
