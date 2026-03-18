@@ -10,7 +10,7 @@
 // - Diagnostic settings to send WAF and Access logs to a Log Analytics Workspace
 //
 // Note: This module assumes the VNet already exists. The subnet is created automatically.
-// Author: Jan Tiedemann (Microsoft Germany) - 2024-06
+// Author: Jan Tiedemann (Microsoft Germany) - 2026-06
 // ------------------------------------------------------------------------------
 
 // ─── Parameters ───────────────────────────────────────────────────────────────

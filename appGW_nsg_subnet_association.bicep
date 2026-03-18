@@ -11,7 +11,7 @@
 // NOTE: The subnet PUT is an upsert – it creates the subnet if it doesn't exist,
 //       or updates it if it does. Redeploying will overwrite existing subnet properties.
 //       If the subnet has a route table or other properties, add matching parameters.
-// Author: Jan Tiedemann (Microsoft Germany) - 2024-06
+// Author: Jan Tiedemann (Microsoft Germany) - 2026-06
 // ------------------------------------------------------------------------------
 
 targetScope = 'resourceGroup'
