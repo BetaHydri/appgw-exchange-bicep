@@ -118,7 +118,10 @@ Internet
 
 Same as above except:
 - No Key Vault, managed identity, or certificate expiry parameters
-- Has `deployAppGateway` toggle (default: `true`) — set to `false` to deploy **only** the NSG and subnet
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Application Gateway) |
 
 ---
 
