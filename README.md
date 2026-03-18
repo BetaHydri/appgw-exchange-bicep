@@ -1,4 +1,4 @@
-# Application Gateway for Exchange – Bicep Deployment
+# Application Gateway for Exchange/Teams (Free/Busy) – Bicep Deployment
 
 ![Bicep](https://img.shields.io/badge/Bicep-0.41.x-blue?logo=microsoftazure)
 ![Azure](https://img.shields.io/badge/Azure-Application%20Gateway%20WAF%20v2-0078D4?logo=microsoftazure)
