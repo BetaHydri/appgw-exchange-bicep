@@ -128,7 +128,7 @@ $certBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\your
 az deployment group create \
   --name appgw-deployment \
   --resource-group rg-appgw \
-  --template-file infra-as-code/bicep/modules/appGW/appGW_custom_deployment_kv.bicep \
+  --template-file appGW_custom_deployment_kv.bicep \
   --parameters \
     vnetName="vnet-hub" \
     vnetResourceGroupName="rg-network" \
@@ -147,7 +147,7 @@ az deployment group create \
 New-AzResourceGroupDeployment `
   -Name "appgw-deployment" `
   -ResourceGroupName "rg-appgw" `
-  -TemplateFile "infra-as-code/bicep/modules/appGW/appGW_custom_deployment_kv.bicep" `
+  -TemplateFile "appGW_custom_deployment_kv.bicep" `
   -vnetName "vnet-hub" `
   -vnetResourceGroupName "rg-network" `
   -appGwSubnetAddressPrefix "10.0.3.0/24" `
@@ -178,7 +178,7 @@ To prepare the subnet and NSG without deploying the Application Gateway:
 az deployment group create \
   --name nsg-subnet-only \
   --resource-group rg-appgw \
-  --template-file infra-as-code/bicep/modules/appGW/appGW_custom_deployment.bicep \
+  --template-file appGW_custom_deployment.bicep \
   --parameters \
     vnetName="vnet-hub" \
     vnetResourceGroupName="rg-network" \
@@ -220,8 +220,8 @@ The NSG created on the Application Gateway subnet contains the following **manda
 After editing any `.bicep` file, regenerate the compiled JSON:
 
 ```bash
-bicep build infra-as-code/bicep/modules/appGW/appGW_custom_deployment_kv.bicep
-bicep build infra-as-code/bicep/modules/appGW/appGW_custom_deployment.bicep
+bicep build appGW_custom_deployment_kv.bicep
+bicep build appGW_custom_deployment.bicep
 ```
 
 The `appGW_nsg_subnet_association.bicep` module is automatically inlined into both JSON outputs — no separate build needed.
