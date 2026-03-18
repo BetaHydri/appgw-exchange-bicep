@@ -66,7 +66,7 @@
       "type": "array",
       "defaultValue": [],
       "metadata": {
-        "description": "Array of private IP addresses of the Exchange backend servers."
+        "description": "Array of private IP addresses of the Exchange backend servers [\"10.0.3.10\",\"10.0.3.11\"]."
       }
     },
     "mailFqdn": {
