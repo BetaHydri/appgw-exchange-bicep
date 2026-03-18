@@ -1,0 +1,604 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.41.2.15936",
+      "templateHash": "14030235468280054569"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Defaults to the resource group location."
+      }
+    },
+    "appGwName": {
+      "type": "string",
+      "defaultValue": "appgw-exchange",
+      "metadata": {
+        "description": "Name of the Application Gateway."
+      }
+    },
+    "vnetName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the existing VNet to deploy into."
+      }
+    },
+    "vnetResourceGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the resource group where the existing VNet is located."
+      }
+    },
+    "appGwSubnetName": {
+      "type": "string",
+      "defaultValue": "snet-appgw",
+      "metadata": {
+        "description": "Name of the subnet for the Application Gateway. Will be created (or updated) in the VNet during deployment."
+      }
+    },
+    "appGwSubnetAddressPrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "Address prefix (CIDR) of the Application Gateway subnet, e.g. 10.0.5.0/24."
+      }
+    },
+    "nsgName": {
+      "type": "string",
+      "defaultValue": "nsg-appgw",
+      "metadata": {
+        "description": "Name of the NSG for the Application Gateway subnet."
+      }
+    },
+    "publicIpName": {
+      "type": "string",
+      "defaultValue": "pip-appgw",
+      "metadata": {
+        "description": "Name of the public IP resource for the Application Gateway frontend."
+      }
+    },
+    "exchangeBackendIPs": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": {
+        "description": "Array of private IP addresses of the Exchange backend servers."
+      }
+    },
+    "mailFqdn": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Public FQDN for mail access, e.g. mail.contoso.com. Must match the SSL certificate (SAN)."
+      }
+    },
+    "autodiscoverFqdn": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Public FQDN for Autodiscover, e.g. autodiscover.contoso.com. Must match the SSL certificate (SAN)."
+      }
+    },
+    "logAnalyticsWorkspaceName": {
+      "type": "string",
+      "defaultValue": "law-appgw",
+      "metadata": {
+        "description": "Name of the Log Analytics Workspace for WAF diagnostics."
+      }
+    },
+    "sslCertData": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Base64-encoded PFX certificate for HTTPS termination."
+      }
+    },
+    "sslCertPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Password for the PFX certificate."
+      }
+    },
+    "wafMode": {
+      "type": "string",
+      "defaultValue": "Detection",
+      "allowedValues": [
+        "Detection",
+        "Prevention"
+      ],
+      "metadata": {
+        "description": "WAF firewall mode. Use Detection for pre-prod, Prevention for production."
+      }
+    },
+    "deployAppGateway": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Set to true to deploy the full Application Gateway stack (App GW, WAF, PIP, LAW, diagnostics). Set to false to deploy only the NSG and subnet association."
+      }
+    }
+  },
+  "resources": [
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2025-02-01",
+      "name": "[parameters('logAnalyticsWorkspaceName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 31
+      }
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2025-05-01",
+      "name": "[parameters('publicIpName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}-waf-policy', parameters('appGwName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "policySettings": {
+          "state": "Enabled",
+          "mode": "[parameters('wafMode')]",
+          "requestBodyCheck": true,
+          "maxRequestBodySizeInKb": 128,
+          "fileUploadLimitInMb": 100
+        },
+        "customRules": [
+          {
+            "name": "AllowEWS",
+            "priority": 10,
+            "ruleType": "MatchRule",
+            "action": "Allow",
+            "matchConditions": [
+              {
+                "matchVariables": [
+                  {
+                    "variableName": "RequestUri"
+                  }
+                ],
+                "operator": "Contains",
+                "matchValues": [
+                  "/EWS/"
+                ],
+                "transforms": [
+                  "Lowercase"
+                ]
+              }
+            ]
+          },
+          {
+            "name": "AllowAutodiscover",
+            "priority": 20,
+            "ruleType": "MatchRule",
+            "action": "Allow",
+            "matchConditions": [
+              {
+                "matchVariables": [
+                  {
+                    "variableName": "RequestUri"
+                  }
+                ],
+                "operator": "Contains",
+                "matchValues": [
+                  "/Autodiscover/"
+                ],
+                "transforms": [
+                  "Lowercase"
+                ]
+              }
+            ]
+          }
+        ],
+        "managedRules": {
+          "managedRuleSets": [
+            {
+              "ruleSetType": "OWASP",
+              "ruleSetVersion": "3.2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Network/applicationGateways",
+      "apiVersion": "2024-05-01",
+      "name": "[parameters('appGwName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "WAF_v2",
+          "tier": "WAF_v2",
+          "capacity": 2
+        },
+        "gatewayIPConfigurations": [
+          {
+            "name": "gw-ipcfg",
+            "properties": {
+              "subnet": {
+                "id": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg'), '2025-04-01').outputs.subnetId.value]"
+              }
+            }
+          }
+        ],
+        "frontendIPConfigurations": [
+          {
+            "name": "frontend-public",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]"
+              }
+            }
+          }
+        ],
+        "frontendPorts": [
+          {
+            "name": "https-443",
+            "properties": {
+              "port": 443
+            }
+          }
+        ],
+        "sslCertificates": [
+          {
+            "name": "exchange-cert",
+            "properties": {
+              "data": "[parameters('sslCertData')]",
+              "password": "[parameters('sslCertPassword')]"
+            }
+          }
+        ],
+        "httpListeners": [
+          {
+            "name": "listener-mail",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', parameters('appGwName'), 'frontend-public')]"
+              },
+              "frontendPort": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts', parameters('appGwName'), 'https-443')]"
+              },
+              "protocol": "Https",
+              "sslCertificate": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/sslCertificates', parameters('appGwName'), 'exchange-cert')]"
+              },
+              "hostName": "[parameters('mailFqdn')]",
+              "requireServerNameIndication": true
+            }
+          },
+          {
+            "name": "listener-autodiscover",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', parameters('appGwName'), 'frontend-public')]"
+              },
+              "frontendPort": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts', parameters('appGwName'), 'https-443')]"
+              },
+              "protocol": "Https",
+              "sslCertificate": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/sslCertificates', parameters('appGwName'), 'exchange-cert')]"
+              },
+              "hostName": "[parameters('autodiscoverFqdn')]",
+              "requireServerNameIndication": true
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "exchange-backend",
+            "properties": {
+              "copy": [
+                {
+                  "name": "backendAddresses",
+                  "count": "[length(parameters('exchangeBackendIPs'))]",
+                  "input": {
+                    "ipAddress": "[parameters('exchangeBackendIPs')[copyIndex('backendAddresses')]]"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "backendHttpSettingsCollection": [
+          {
+            "name": "https-backend-mail",
+            "properties": {
+              "protocol": "Https",
+              "port": 443,
+              "requestTimeout": 120,
+              "pickHostNameFromBackendAddress": false,
+              "hostName": "[parameters('mailFqdn')]",
+              "cookieBasedAffinity": "Disabled",
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', parameters('appGwName'), 'probe-mail')]"
+              }
+            }
+          },
+          {
+            "name": "https-backend-autodiscover",
+            "properties": {
+              "protocol": "Https",
+              "port": 443,
+              "requestTimeout": 120,
+              "pickHostNameFromBackendAddress": false,
+              "hostName": "[parameters('autodiscoverFqdn')]",
+              "cookieBasedAffinity": "Disabled",
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', parameters('appGwName'), 'probe-autodiscover')]"
+              }
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "probe-mail",
+            "properties": {
+              "protocol": "Https",
+              "path": "/EWS/Exchange.asmx",
+              "interval": 30,
+              "timeout": 30,
+              "unhealthyThreshold": 3,
+              "host": "[parameters('mailFqdn')]",
+              "match": {
+                "statusCodes": [
+                  "200-401"
+                ]
+              }
+            }
+          },
+          {
+            "name": "probe-autodiscover",
+            "properties": {
+              "protocol": "Https",
+              "path": "/Autodiscover/Autodiscover.xml",
+              "interval": 30,
+              "timeout": 30,
+              "unhealthyThreshold": 3,
+              "host": "[parameters('autodiscoverFqdn')]",
+              "match": {
+                "statusCodes": [
+                  "200-401"
+                ]
+              }
+            }
+          }
+        ],
+        "requestRoutingRules": [
+          {
+            "name": "rule-mail",
+            "properties": {
+              "priority": 100,
+              "ruleType": "Basic",
+              "httpListener": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/httpListeners', parameters('appGwName'), 'listener-mail')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools', parameters('appGwName'), 'exchange-backend')]"
+              },
+              "backendHttpSettings": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', parameters('appGwName'), 'https-backend-mail')]"
+              }
+            }
+          },
+          {
+            "name": "rule-autodiscover",
+            "properties": {
+              "priority": 200,
+              "ruleType": "Basic",
+              "httpListener": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/httpListeners', parameters('appGwName'), 'listener-autodiscover')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools', parameters('appGwName'), 'exchange-backend')]"
+              },
+              "backendHttpSettings": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', parameters('appGwName'), 'https-backend-autodiscover')]"
+              }
+            }
+          }
+        ],
+        "firewallPolicy": {
+          "id": "[resourceId('Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies', format('{0}-waf-policy', parameters('appGwName')))]"
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",
+        "[resourceId('Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies', format('{0}-waf-policy', parameters('appGwName')))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Insights/diagnosticSettings",
+      "apiVersion": "2021-05-01-preview",
+      "scope": "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]",
+      "name": "appgw-waf-diagnostics",
+      "properties": {
+        "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]",
+        "logs": [
+          {
+            "category": "ApplicationGatewayFirewallLog",
+            "enabled": true
+          },
+          {
+            "category": "ApplicationGatewayAccessLog",
+            "enabled": true
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/applicationGateways', parameters('appGwName'))]",
+        "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsWorkspaceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-appgw-nsg",
+      "resourceGroup": "[parameters('vnetResourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "nsgName": {
+            "value": "[parameters('nsgName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "vnetName": {
+            "value": "[parameters('vnetName')]"
+          },
+          "subnetName": {
+            "value": "[parameters('appGwSubnetName')]"
+          },
+          "subnetAddressPrefix": {
+            "value": "[parameters('appGwSubnetAddressPrefix')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.41.2.15936",
+              "templateHash": "562222602387528379"
+            }
+          },
+          "parameters": {
+            "nsgName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the NSG for the Application Gateway subnet."
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region for the NSG resource."
+              }
+            },
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the existing VNet that contains the Application Gateway subnet."
+              }
+            },
+            "subnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Application Gateway subnet. Will be created if it does not exist."
+              }
+            },
+            "subnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Address prefix (CIDR) of the Application Gateway subnet, e.g. 10.0.1.0/24."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('nsgName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-HTTPS-Inbound",
+                    "properties": {
+                      "priority": 100,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourcePortRange": "*",
+                      "destinationPortRange": "443",
+                      "sourceAddressPrefix": "Internet",
+                      "destinationAddressPrefix": "*"
+                    }
+                  },
+                  {
+                    "name": "Allow-GatewayManager-Inbound",
+                    "properties": {
+                      "priority": 110,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourcePortRange": "*",
+                      "destinationPortRange": "65200-65535",
+                      "sourceAddressPrefix": "GatewayManager",
+                      "destinationAddressPrefix": "*"
+                    }
+                  },
+                  {
+                    "name": "Allow-AzureLoadBalancer-Inbound",
+                    "properties": {
+                      "priority": 120,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "*",
+                      "sourcePortRange": "*",
+                      "destinationPortRange": "*",
+                      "sourceAddressPrefix": "AzureLoadBalancer",
+                      "destinationAddressPrefix": "*"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('vnetName'), parameters('subnetName'))]",
+              "properties": {
+                "addressPrefix": "[parameters('subnetAddressPrefix')]",
+                "networkSecurityGroup": {
+                  "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+            },
+            "subnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnetName'))]"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "vnetName": {
+      "value": "TODO: your existing VNet name"
+    },
+    "appGwSubnetName": {
+      "value": "snet-appgw"
+    },
+    "appGwSubnetAddressPrefix": {
+      "value": "TODO: free CIDR in your VNet, e.g. 10.0.5.0/24"
+    },
+    "exchangeBackendIPs": {
+      "value": [
+        "TODO: private IP of Exchange VM 1",
+        "TODO: private IP of Exchange VM 2"
+      ]
+    },
+    "exchangeFqdn": {
+      "value": "TODO: mail.yourdomain.com"
+    },
+    "sslCertData": {
+      "value": "TODO: base64-encoded PFX certificate"
+    },
+    "sslCertPassword": {
+      "value": "TODO: PFX certificate password"
+    },
+    "logAnalyticsWorkspaceName": {
+      "value": "law-appgw"
+    }
+  }
+}
