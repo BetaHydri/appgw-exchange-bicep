@@ -428,10 +428,10 @@ The Key Vault variant uses a `Microsoft.Resources/deploymentScripts` resource to
 - Deployment fails at the `import-pfx-to-keyvault` deployment script resource.
 - Error message references `allowSharedKeyAccess` or storage account creation failure.
 
-**Workarounds:**
+**Workarounds (choose one):**
 
-1. **Exempt the resource group** from the `allowSharedKeyAccess` policy during deployment, then re-enable it.
-2. **Manual import + redeploy without `sslCertData`**:
+1. **Option A — Exempt the resource group** from the `allowSharedKeyAccess` policy during deployment, then re-enable it after the deployment completes. This allows the deployment script to run normally.
+2. **Option B — Manual import + redeploy without `sslCertData`** (no policy change needed):
    1. Import the certificate manually into Key Vault:
       ```powershell
       az keyvault certificate import `
@@ -442,7 +442,7 @@ The Key Vault variant uses a `Microsoft.Resources/deploymentScripts` resource to
       ```
       > You may need to grant yourself **Key Vault Certificates Officer** first (see [Grant yourself Key Vault access](#grant-yourself-key-vault-access)).
    2. **Redeploy the same template without providing `sslCertData`** (leave it empty). The deployment script is automatically skipped when `sslCertData` is empty, so the `allowSharedKeyAccess` policy will not block the deployment. All other resources (App Gateway, WAF, diagnostics, Event Grid notifications) will be created normally, using the certificate you imported manually.
-3. **Use the inline variant** (`appGW_custom_deployment.bicep`) which does not use deployment scripts or storage accounts.
+3. **Option C — Use the inline variant** (`appGW_custom_deployment.bicep`) which does not use deployment scripts or storage accounts.
 
 ---
 
