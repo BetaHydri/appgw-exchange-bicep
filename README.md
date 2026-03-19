@@ -79,7 +79,7 @@ Internet
 - **Dual HTTPS listeners** with SNI for mail and autodiscover FQDNs
 - **Dedicated health probes** per endpoint (EWS + Autodiscover)
 - **NSG** with mandatory Application Gateway v2 inbound rules (port 443, GatewayManager, AzureLoadBalancer)
-- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group, a different subscription, or even a different Azure region
+- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group or a different subscription
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
@@ -98,7 +98,7 @@ Internet
 | `vnetName` | **Yes** | — | Name of the existing VNet |
 | `vnetResourceGroupName` | **Yes** | — | Resource group of the VNet |
 | `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
-| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Required when the VNet is in a different region than the App Gateway resource group |
+| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Only needed when the App Gateway RG and VNet RG have different default locations (both must still be in the same region) |
 | `appGwSubnetAddressPrefix` | **Yes** | — | Subnet CIDR, e.g. `10.0.3.0/24` |
 | `exchangeBackendIPs` | **Yes** | — | Array of backend server IPs |
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
@@ -131,7 +131,7 @@ Same as above except:
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
-| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Required when the VNet is in a different region than the App Gateway resource group |
+| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Only needed when the App Gateway RG and VNet RG have different default locations (both must still be in the same region) |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Application Gateway) |
 
 ---
@@ -140,11 +140,13 @@ Same as above except:
 
 ### Prerequisites
 
-- An existing **VNet** (the subnet will be created automatically)
+- An existing **VNet** in the **same Azure region** as the Application Gateway (the subnet will be created automatically)
 - A **PFX certificate** with SANs matching `mailFqdn` and `autodiscoverFqdn`
 - **Contributor** role on the target resource group
 - **Network Contributor** role on the VNet resource group (for cross-RG subnet deployment)
 - When the VNet is in a **different subscription**, the deploying principal also needs **Network Contributor** on the VNet resource group in that subscription
+
+> **Important — Region constraint:** The Application Gateway is a regional resource. The VNet/subnet used by the App Gateway **must be in the same Azure region** as the App Gateway itself. Cross-subscription deployments are supported, but cross-region is **not**. Make sure the resource group you deploy to and the VNet are in the same region.
 
 ### 1. Base64-encode the PFX certificate
 
