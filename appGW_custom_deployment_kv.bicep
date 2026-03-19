@@ -29,6 +29,9 @@ param vnetName string
 @description('Name of the resource group where the existing VNet is located.')
 param vnetResourceGroupName string
 
+@description('Subscription ID where the existing VNet is located. Defaults to the current subscription.')
+param vnetSubscriptionId string = subscription().subscriptionId
+
 @description('Name of the subnet for the Application Gateway. Will be created (or updated) in the VNet during deployment.')
 param appGwSubnetName string = 'netenv-appGW'
 
@@ -308,7 +311,7 @@ resource wafPolicy 'Microsoft.Network/ApplicationGatewayWebApplicationFirewallPo
 
 module nsgSubnetAssociation 'appGW_nsg_subnet_association.bicep' = {
   name: 'deploy-appgw-nsg'
-  scope: resourceGroup(vnetResourceGroupName)
+  scope: resourceGroup(vnetSubscriptionId, vnetResourceGroupName)
   params: {
     nsgName: nsgName
     location: location

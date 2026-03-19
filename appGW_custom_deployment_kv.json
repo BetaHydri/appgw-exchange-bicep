@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "7339594087335200344"
+      "templateHash": "4500004993125719901"
     }
   },
   "parameters": {
@@ -33,6 +33,13 @@
       "type": "string",
       "metadata": {
         "description": "Name of the resource group where the existing VNet is located."
+      }
+    },
+    "vnetSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": {
+        "description": "Subscription ID where the existing VNet is located. Defaults to the current subscription."
       }
     },
     "appGwSubnetName": {
@@ -377,7 +384,7 @@
             "name": "gw-ipcfg",
             "properties": {
               "subnet": {
-                "id": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg'), '2025-04-01').outputs.subnetId.value]"
+                "id": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('vnetSubscriptionId'), parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg'), '2025-04-01').outputs.subnetId.value]"
               }
             }
           }
@@ -566,7 +573,7 @@
         "[resourceId('Microsoft.Resources/deploymentScripts', 'import-appgw-cert')]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('vnetSubscriptionId'), parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
         "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",
         "[resourceId('Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies', format('{0}-waf-policy', parameters('appGwName')))]"
       ]
@@ -599,6 +606,7 @@
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "deploy-appgw-nsg",
+      "subscriptionId": "[parameters('vnetSubscriptionId')]",
       "resourceGroup": "[parameters('vnetResourceGroupName')]",
       "properties": {
         "expressionEvaluationOptions": {

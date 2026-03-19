@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "5701449946625459648"
+      "templateHash": "15346260782912076906"
     }
   },
   "parameters": {
@@ -33,6 +33,13 @@
       "type": "string",
       "metadata": {
         "description": "Name of the resource group where the existing VNet is located."
+      }
+    },
+    "vnetSubscriptionId": {
+      "type": "string",
+      "defaultValue": "[subscription().subscriptionId]",
+      "metadata": {
+        "description": "Subscription ID where the existing VNet is located. Defaults to the current subscription."
       }
     },
     "appGwSubnetName": {
@@ -237,7 +244,7 @@
             "name": "gw-ipcfg",
             "properties": {
               "subnet": {
-                "id": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg'), '2025-04-01').outputs.subnetId.value]"
+                "id": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('vnetSubscriptionId'), parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg'), '2025-04-01').outputs.subnetId.value]"
               }
             }
           }
@@ -424,7 +431,7 @@
         }
       },
       "dependsOn": [
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('vnetSubscriptionId'), parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
         "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",
         "[resourceId('Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies', format('{0}-waf-policy', parameters('appGwName')))]"
       ]
@@ -457,6 +464,7 @@
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "deploy-appgw-nsg",
+      "subscriptionId": "[parameters('vnetSubscriptionId')]",
       "resourceGroup": "[parameters('vnetResourceGroupName')]",
       "properties": {
         "expressionEvaluationOptions": {
