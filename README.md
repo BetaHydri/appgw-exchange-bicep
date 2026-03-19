@@ -138,6 +138,26 @@ Same as above except:
 > - The Application Gateway **must be in the same Azure region** as the VNet.
 > - The App GW resource group and VNet resource group can be **different** (cross-resource-group is supported within the same subscription).
 
+#### What about cross-subscription backends?
+
+While the App Gateway and its subnet must be in the **same subscription**, backend servers can be in a **different subscription** as long as:
+
+- The VNets are **peered** (same region)
+- The backend pool references **private IPs** or **FQDNs** reachable via the peered VNet
+- Network routing between the subnets is configured correctly
+
+```text
+Subscription A                    Subscription B
+├─ RG: rg-appgw                  ├─ RG: rg-servers
+│  ├─ VNet-AppGW (peered) ◄────► │  ├─ VNet-Backend (peered)
+│  │  └─ snet-appgw              │  │  └─ snet-servers
+│  │     └─ Application Gateway  │  │     ├─ Exchange Server 1
+│  │                              │  │     └─ Exchange Server 2
+│  ├─ Key Vault                   │
+│  ├─ Public IP                   │
+│  └─ WAF Policy                  │
+```
+
 #### Required RBAC Permissions
 
 | Scope | Role | When needed |
