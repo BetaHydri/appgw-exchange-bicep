@@ -102,8 +102,9 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-
 // Stores the SSL/TLS certificate. enabledForDeployment and enableSoftDelete are configured.
 
 // ─── Storage Account for the deployment script ──────────────────────────────
-// The deployment script needs a storage account. Uses managed-identity-based
-// access (no shared key) to comply with policies that block key-based auth.
+// The deployment script needs a storage account with shared key access.
+// NOTE: If your subscription has a deny policy on allowSharedKeyAccess,
+//       use the inline certificate variant instead (appGW_custom_deployment.bicep).
 
 resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (deployAppGateway) {
   name: scriptStorageAccountName
@@ -111,41 +112,9 @@ resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (depl
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
-    allowSharedKeyAccess: false
+    allowSharedKeyAccess: true
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
-  }
-}
-
-// ─── RBAC: Storage Blob Data Contributor for the Managed Identity ───────────
-// Required for managed-identity storage access by the deployment script.
-
-resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
-  name: guid(scriptStorage.id, managedIdentity.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
-  scope: scriptStorage
-  properties: {
-    principalId: managedIdentity!.properties.principalId
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
-    )
-    principalType: 'ServicePrincipal'
-  }
-}
-
-// ─── RBAC: Storage File Data Privileged Contributor for the Managed Identity ──
-// Required for managed-identity storage access (deployment scripts use file shares).
-
-resource storageFileRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
-  name: guid(scriptStorage.id, managedIdentity.id, '69566ab7-960f-475b-8e7c-b3118f30c6bd')
-  scope: scriptStorage
-  properties: {
-    principalId: managedIdentity!.properties.principalId
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      '69566ab7-960f-475b-8e7c-b3118f30c6bd'
-    )
-    principalType: 'ServicePrincipal'
   }
 }
 
@@ -221,7 +190,7 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
     timeout: 'PT10M'
     storageAccountSettings: {
       storageAccountName: scriptStorage.name
-      storageAccessMode: 'UserAssignedManagedIdentity'
+      storageAccountKey: scriptStorage!.listKeys().keys[0].value
     }
     environmentVariables: [
       { name: 'KV_NAME', value: kv.name }
@@ -266,8 +235,6 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
   dependsOn: [
     kvRoleAssignment
     kvCertOfficerRole
-    storageBlobRole
-    storageFileRole
   ]
 }
 

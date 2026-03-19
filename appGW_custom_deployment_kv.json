@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "13301727206414038317"
+      "templateHash": "17570234753099826904"
     }
   },
   "parameters": {
@@ -193,42 +193,10 @@
       },
       "kind": "StorageV2",
       "properties": {
-        "allowSharedKeyAccess": false,
+        "allowSharedKeyAccess": true,
         "minimumTlsVersion": "TLS1_2",
         "supportsHttpsTrafficOnly": true
       }
-    },
-    {
-      "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]",
-      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2024-11-30').principalId]",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]",
-      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '69566ab7-960f-475b-8e7c-b3118f30c6bd')]",
-      "properties": {
-        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2024-11-30').principalId]",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '69566ab7-960f-475b-8e7c-b3118f30c6bd')]",
-        "principalType": "ServicePrincipal"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]"
-      ]
     },
     {
       "condition": "[parameters('deployAppGateway')]",
@@ -300,7 +268,7 @@
         "timeout": "PT10M",
         "storageAccountSettings": {
           "storageAccountName": "[parameters('scriptStorageAccountName')]",
-          "storageAccessMode": "UserAssignedManagedIdentity"
+          "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), '2025-01-01').keys[0].value]"
         },
         "environmentVariables": [
           {
@@ -331,9 +299,7 @@
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985'))]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]",
-        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'))]",
-        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '69566ab7-960f-475b-8e7c-b3118f30c6bd'))]"
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]"
       ]
     },
     {

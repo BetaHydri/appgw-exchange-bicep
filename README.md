@@ -142,11 +142,38 @@ Same as above except:
 
 - An existing **VNet** in the **same Azure region** as the Application Gateway (the subnet will be created automatically)
 - A **PFX certificate** with SANs matching `mailFqdn` and `autodiscoverFqdn`
-- **Contributor** role on the target resource group
-- **Network Contributor** role on the VNet resource group (for cross-RG subnet deployment)
-- When the VNet is in a **different subscription**, the deploying principal also needs **Network Contributor** on the VNet resource group in that subscription
 
 > **Important — Region constraint:** The Application Gateway is a regional resource. The VNet/subnet used by the App Gateway **must be in the same Azure region** as the App Gateway itself. Cross-subscription deployments are supported, but cross-region is **not**. Make sure the resource group you deploy to and the VNet are in the same region.
+
+#### Required RBAC Permissions
+
+| Scope | Role | When needed |
+|-------|------|-------------|
+| App Gateway resource group | **Contributor** | Always |
+| VNet resource group (same subscription) | **Network Contributor** | Cross-resource-group deployment |
+| VNet resource group (different subscription) | **Network Contributor** | Cross-subscription deployment |
+| App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault and Storage Account |
+
+#### Azure Policy Constraints (Key Vault variant)
+
+The Key Vault variant uses a **deployment script** (`Microsoft.Resources/deploymentScripts`) to import the PFX certificate. This deployment script requires a **storage account with shared key access** to run. The following Azure Policies **must not be enforced** on the App Gateway subscription, or the deployment script will fail:
+
+| Policy | Effect | Impact |
+|--------|--------|--------|
+| `Storage accounts should disable shared key access` | **Deny** | Blocks the deployment script's storage account from being created with `allowSharedKeyAccess: true`. Error: `KeyBasedAuthenticationNotPermitted` |
+| `Storage accounts should restrict shared key access` | **Audit** | No impact (audit-only does not block deployment) |
+
+> **Note:** The `storageAccessMode: UserAssignedManagedIdentity` option that would avoid this limitation requires API version `2024-10-01-preview`, which is **not yet GA** and not available in all Azure regions. Once it becomes generally available, this constraint will be removed.
+
+**If you cannot modify the policy**, use the **inline certificate variant** (`appGW_custom_deployment.bicep`) instead — it embeds the PFX directly in the App Gateway resource without needing Key Vault, deployment scripts, or storage accounts.
+
+#### Summary: Which variant to use?
+
+| Scenario | Recommended variant |
+|----------|-------------------|
+| No restrictive storage policies | **Key Vault** (`appGW_custom_deployment_kv.bicep`) |
+| Policy blocks `allowSharedKeyAccess` on storage accounts | **Inline** (`appGW_custom_deployment.bicep`) |
+| Dev/test, simplest setup | **Inline** (`appGW_custom_deployment.bicep`) |
 
 ### 1. Base64-encode the PFX certificate
 
