@@ -277,6 +277,20 @@ az deployment group create \
     deployAppGateway=false
 ```
 
+### 4. Post-deployment: Grant yourself Key Vault access (optional)
+
+The deployment only grants the **managed identity** access to Key Vault (Key Vault Secrets User). If you want to view or manage the certificate in the Azure Portal, you need to grant yourself access too:
+
+```powershell
+# Grant yourself "Key Vault Secrets Officer" on the Key Vault
+$kvName = "kv-appgw-xxxx"  # replace with your actual Key Vault name
+$kv = Get-AzKeyVault -VaultName $kvName
+$userId = (Get-AzADUser -SignedIn).Id
+New-AzRoleAssignment -ObjectId $userId -RoleDefinitionName "Key Vault Secrets Officer" -Scope $kv.ResourceId
+```
+
+> **Note:** RBAC role assignments can take up to **5 minutes** to propagate. If you see `The operation is not allowed by RBAC` in the Key Vault portal immediately after deployment, wait a few minutes and refresh.
+
 ---
 
 ## NSG Rules
