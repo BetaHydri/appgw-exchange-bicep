@@ -86,7 +86,8 @@ param certExpiryNotificationEmail string = ''
 param deployAppGateway bool = true
 
 @description('Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts.')
-param scriptStorageAccountName string = 'stappgwscript${uniqueString(resourceGroup().id)}'
+@maxLength(24)
+param scriptStorageAccountName string = 'stscript${uniqueString(resourceGroup().id)}'
 
 // ─── User-Assigned Managed Identity ─────────────────────────────────────────
 // The App Gateway uses this identity to retrieve the SSL certificate from Key Vault.

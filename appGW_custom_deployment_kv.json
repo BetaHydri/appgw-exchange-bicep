@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "4383357092525424568"
+      "templateHash": "14368910279540314217"
     }
   },
   "parameters": {
@@ -166,7 +166,8 @@
     },
     "scriptStorageAccountName": {
       "type": "string",
-      "defaultValue": "[format('stappgwscript{0}', uniqueString(resourceGroup().id))]",
+      "defaultValue": "[format('stscript{0}', uniqueString(resourceGroup().id))]",
+      "maxLength": 24,
       "metadata": {
         "description": "Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts."
       }
