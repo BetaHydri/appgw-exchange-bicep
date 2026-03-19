@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "14185397537488330343"
+      "templateHash": "8988702076127716768"
     }
   },
   "parameters": {
@@ -124,6 +124,13 @@
       "defaultValue": "",
       "metadata": {
         "description": "Password for the PFX certificate. Leave empty if the PFX was exported without a password."
+      }
+    },
+    "certExpiryNotificationEmail": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Email address to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup."
       }
     },
     "wafMode": {
@@ -246,6 +253,63 @@
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985'))]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
+      ]
+    },
+    {
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "type": "Microsoft.Insights/actionGroups",
+      "apiVersion": "2023-01-01",
+      "name": "ag-cert-expiry",
+      "location": "global",
+      "properties": {
+        "enabled": true,
+        "groupShortName": "CertExpiry",
+        "emailReceivers": [
+          {
+            "name": "CertExpiryEmail",
+            "emailAddress": "[parameters('certExpiryNotificationEmail')]",
+            "useCommonAlertSchema": true
+          }
+        ]
+      }
+    },
+    {
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "type": "Microsoft.EventGrid/systemTopics",
+      "apiVersion": "2025-02-15",
+      "name": "[format('{0}-evgt', parameters('keyVaultName'))]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "source": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+        "topicType": "Microsoft.KeyVault.vaults"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "type": "Microsoft.EventGrid/systemTopics/eventSubscriptions",
+      "apiVersion": "2025-02-15",
+      "name": "[format('{0}/{1}', format('{0}-evgt', parameters('keyVaultName')), 'cert-near-expiry')]",
+      "properties": {
+        "destination": {
+          "endpointType": "MonitorAlert",
+          "properties": {
+            "actionGroups": [
+              "[resourceId('Microsoft.Insights/actionGroups', 'ag-cert-expiry')]"
+            ]
+          }
+        },
+        "filter": {
+          "includedEventTypes": [
+            "Microsoft.KeyVault.CertificateNearExpiry"
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/actionGroups', 'ag-cert-expiry')]",
+        "[resourceId('Microsoft.EventGrid/systemTopics', format('{0}-evgt', parameters('keyVaultName')))]"
       ]
     },
     {

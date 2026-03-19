@@ -6,6 +6,7 @@
 // - Azure Key Vault with certificate imported via deployment script (proper KV certificate)
 // - User-Assigned Managed Identity with Key Vault access for the App Gateway
 // - Deployment script to import PFX as a KV certificate (no explicit storage account)
+// - Certificate expiry notification via Event Grid + email action group
 // - HTTPS listeners with SNI for mail and autodiscover FQDNs (cert retrieved from Key Vault)
 // - Backend pool with Exchange server IPs
 // - Health probe for the EWS endpoint
@@ -71,6 +72,9 @@ param sslCertData string = ''
 @description('Password for the PFX certificate. Leave empty if the PFX was exported without a password.')
 @secure()
 param sslCertPassword string = ''
+
+@description('Email address to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup.')
+param certExpiryNotificationEmail string = ''
 
 @description('WAF firewall mode. Use Detection for pre-prod, Prevention for production.')
 @allowed(['Detection', 'Prevention'])
@@ -150,7 +154,7 @@ resource kvCertOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 // Known limitation: If your subscription has an Azure Policy that enforces
 // `allowSharedKeyAccess: false` on storage accounts, the deployment script will
 // fail because the auto-provisioned storage account uses shared key access.
-// Workaround: Import the certificate manually after deployment (see README).
+// Workaround: See README for workarounds.
 
 resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (deployAppGateway) {
   name: 'import-pfx-to-keyvault'
@@ -194,6 +198,56 @@ resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = i
     kvSecretsUserRole
     kvCertOfficerRole
   ]
+}
+
+// ─── Certificate Expiry Notification ─────────────────────────────────────
+// Event Grid system topic on the Key Vault + subscription that sends an email
+// when the certificate is within 30 days of expiry (CertificateNearExpiry event).
+// Only deployed if certExpiryNotificationEmail is provided.
+
+resource certExpiryActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+  name: 'ag-cert-expiry'
+  location: 'global'
+  properties: {
+    enabled: true
+    groupShortName: 'CertExpiry'
+    emailReceivers: [
+      {
+        name: 'CertExpiryEmail'
+        emailAddress: certExpiryNotificationEmail
+        useCommonAlertSchema: true
+      }
+    ]
+  }
+}
+
+resource kvEventGridTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+  name: '${keyVaultName}-evgt'
+  location: location
+  properties: {
+    source: kv.id
+    topicType: 'Microsoft.KeyVault.vaults'
+  }
+}
+
+resource certExpirySubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+  parent: kvEventGridTopic
+  name: 'cert-near-expiry'
+  properties: {
+    destination: {
+      endpointType: 'MonitorAlert'
+      properties: {
+        actionGroups: [
+          certExpiryActionGroup.id
+        ]
+      }
+    }
+    filter: {
+      includedEventTypes: [
+        'Microsoft.KeyVault.CertificateNearExpiry'
+      ]
+    }
+  }
 }
 
 // ─── Log Analytics Workspace for WAF diagnostics ────────────────────────────

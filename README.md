@@ -83,6 +83,7 @@ Internet
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Deployment script certificate import** — PFX imported as a proper KV certificate (expiry tracking, Event Grid, easy renewal)
+- **Certificate expiry email notification** — optional Event Grid subscription that emails you 30 days before the certificate expires
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -112,9 +113,10 @@ Internet
 | `managedIdentityName` | No | `id-appgw` | Managed Identity name |
 | `keyVaultCertificateName` | No | `exchange-cert` | Certificate name in Key Vault |
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |
+| `certExpiryNotificationEmail` | No | _(empty)_ | Email to receive certificate expiry notifications (30 days before). Leave empty to skip |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Key Vault, cert, App GW, or diagnostics) |
 
-> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, deployment script, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
+> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, deployment script, Event Grid topic, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
 
 ### Inline variant (`appGW_custom_deployment.bicep`)
 
@@ -250,7 +252,8 @@ az deployment group create \
     mailFqdn="mail.contoso.com" \
     autodiscoverFqdn="autodiscover.contoso.com" \
     sslCertData="$certBase64" \
-    sslCertPassword="YourPfxPassword"   # omit if PFX has no password
+    sslCertPassword="YourPfxPassword" \
+    certExpiryNotificationEmail="admin@contoso.com"
 ```
 
 ### 2b. Deploy via PowerShell (Key Vault variant)
@@ -267,7 +270,8 @@ New-AzResourceGroupDeployment `
   -mailFqdn "mail.contoso.com" `
   -autodiscoverFqdn "autodiscover.contoso.com" `
   -sslCertData $certBase64 `
-  -sslCertPassword "YourPfxPassword"   # omit if PFX has no password
+  -sslCertPassword "YourPfxPassword" `
+  -certExpiryNotificationEmail "admin@contoso.com"
 ```
 
 ### 2c. Deploy via Azure Portal
@@ -405,7 +409,7 @@ The NSG created on the Application Gateway subnet contains the following **manda
 | Certificate import | Deployment script (`az keyvault certificate import`) | Inline PFX in App GW config |
 | Secret exposure | No secrets in parameter files (secure params) | PFX data + password passed at deploy time |
 | Certificate renewal | AppGW refreshes from KV every 4 hours | Requires redeployment |
-| Expiry notification | Built-in via KV certificate expiry + Event Grid | Not available |
+| Expiry notification | Built-in via Event Grid + email (if `certExpiryNotificationEmail` set) | Not available |
 | Complexity | Moderate (managed identity, RBAC, deployment script) | Lower |
 | Policy compatibility | May conflict with `allowSharedKeyAccess: false` policy (see below) | No restrictions |
 | Recommendation | **Production** | Dev/test only |
