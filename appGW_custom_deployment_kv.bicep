@@ -59,8 +59,9 @@ param autodiscoverFqdn string = ''
 @description('Name of the Log Analytics Workspace for WAF diagnostics.')
 param logAnalyticsWorkspaceName string = 'law-appgw'
 
-@description('Name of the Azure Key Vault to store the SSL certificate.')
-param keyVaultName string = 'netenv-kv-appgw'
+@description('Name of the Azure Key Vault to store the SSL certificate. Must be globally unique (3-24 alphanumeric characters and hyphens).')
+@maxLength(24)
+param keyVaultName string = 'kv-appgw-${substring(uniqueString(resourceGroup().id), 0, 4)}'
 
 @description('Name of the User-Assigned Managed Identity for the Application Gateway.')
 param managedIdentityName string = 'id-appgw'
@@ -101,9 +102,8 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-
 // Stores the SSL/TLS certificate. enabledForDeployment and enableSoftDelete are configured.
 
 // ─── Storage Account for the deployment script ──────────────────────────────
-// The deployment script needs a storage account. If the subscription has a policy
-// blocking key-based auth on auto-created storage accounts, this explicit resource
-// with allowSharedKeyAccess ensures the script can run.
+// The deployment script needs a storage account. Uses managed-identity-based
+// access (no shared key) to comply with policies that block key-based auth.
 
 resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (deployAppGateway) {
   name: scriptStorageAccountName
@@ -111,14 +111,14 @@ resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (depl
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
-    allowSharedKeyAccess: true
+    allowSharedKeyAccess: false
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
   }
 }
 
 // ─── RBAC: Storage Blob Data Contributor for the Managed Identity ───────────
-// Required so the deployment script can write its output to the storage account.
+// Required for managed-identity storage access by the deployment script.
 
 resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
   name: guid(scriptStorage.id, managedIdentity.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
@@ -128,6 +128,22 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
     roleDefinitionId: subscriptionResourceId(
       'Microsoft.Authorization/roleDefinitions',
       'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    )
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ─── RBAC: Storage File Data Privileged Contributor for the Managed Identity ──
+// Required for managed-identity storage access (deployment scripts use file shares).
+
+resource storageFileRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
+  name: guid(scriptStorage.id, managedIdentity.id, '69566ab7-960f-475b-8e7c-b3118f30c6bd')
+  scope: scriptStorage
+  properties: {
+    principalId: managedIdentity!.properties.principalId
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      '69566ab7-960f-475b-8e7c-b3118f30c6bd'
     )
     principalType: 'ServicePrincipal'
   }
@@ -205,7 +221,7 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
     timeout: 'PT10M'
     storageAccountSettings: {
       storageAccountName: scriptStorage.name
-      storageAccountKey: scriptStorage!.listKeys().keys[0].value
+      storageAccessMode: 'UserAssignedManagedIdentity'
     }
     environmentVariables: [
       { name: 'KV_NAME', value: kv.name }
@@ -251,6 +267,7 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
     kvRoleAssignment
     kvCertOfficerRole
     storageBlobRole
+    storageFileRole
   ]
 }
 
