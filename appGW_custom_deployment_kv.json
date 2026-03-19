@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "6317804041039112943"
+      "templateHash": "14185397537488330343"
     }
   },
   "parameters": {
@@ -113,10 +113,17 @@
       }
     },
     "sslCertData": {
-      "type": "string",
+      "type": "securestring",
       "defaultValue": "",
       "metadata": {
         "description": "Base64-encoded PFX certificate to import into Key Vault."
+      }
+    },
+    "sslCertPassword": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Password for the PFX certificate. Leave empty if the PFX was exported without a password."
       }
     },
     "wafMode": {
@@ -183,15 +190,62 @@
     },
     {
       "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.KeyVault/vaults/secrets",
-      "apiVersion": "2024-11-01",
-      "name": "[format('{0}/{1}', parameters('keyVaultName'), parameters('keyVaultCertificateName'))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985')]",
       "properties": {
-        "value": "[parameters('sslCertData')]",
-        "contentType": "application/x-pkcs12"
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2024-11-30').principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a4417e6f-fecd-4de8-b567-7b0420556985')]",
+        "principalType": "ServicePrincipal"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Resources/deploymentScripts",
+      "apiVersion": "2023-08-01",
+      "name": "import-pfx-to-keyvault",
+      "location": "[parameters('location')]",
+      "kind": "AzureCLI",
+      "identity": {
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')))]": {}
+        }
+      },
+      "properties": {
+        "azCliVersion": "2.63.0",
+        "retentionInterval": "PT1H",
+        "timeout": "PT10M",
+        "environmentVariables": [
+          {
+            "name": "KEYVAULT_NAME",
+            "value": "[parameters('keyVaultName')]"
+          },
+          {
+            "name": "CERT_NAME",
+            "value": "[parameters('keyVaultCertificateName')]"
+          },
+          {
+            "name": "PFX_BASE64",
+            "secureValue": "[parameters('sslCertData')]"
+          },
+          {
+            "name": "PFX_PASSWORD",
+            "secureValue": "[parameters('sslCertPassword')]"
+          }
+        ],
+        "scriptContent": "#!/bin/bash\n      set -e\n      echo \"$PFX_BASE64\" | base64 -d > /tmp/cert.pfx\n      if [ -n \"$PFX_PASSWORD\" ]; then\n        az keyvault certificate import \\\n          --vault-name \"$KEYVAULT_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx \\\n          --password \"$PFX_PASSWORD\"\n      else\n        az keyvault certificate import \\\n          --vault-name \"$KEYVAULT_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx\n      fi\n      rm -f /tmp/cert.pfx\n    "
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985'))]",
+        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
       ]
     },
     {
@@ -340,7 +394,7 @@
           {
             "name": "exchange-cert",
             "properties": {
-              "keyVaultSecretId": "[reference(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), parameters('keyVaultCertificateName')), '2024-11-01').secretUri]"
+              "keyVaultSecretId": "[format('{0}secrets/{1}', reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2024-11-01').vaultUri, parameters('keyVaultCertificateName'))]"
             }
           }
         ],
@@ -499,8 +553,8 @@
         }
       },
       "dependsOn": [
-        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
-        "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), parameters('keyVaultCertificateName'))]",
+        "[resourceId('Microsoft.Resources/deploymentScripts', 'import-pfx-to-keyvault')]",
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
         "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",

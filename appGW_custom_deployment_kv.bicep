@@ -3,8 +3,9 @@
 // This module deploys an Application Gateway (WAF v2) with the following features:
 // - Subnet creation (or update) with NSG inside an existing VNet (cross-resource-group)
 // - Public IP for frontend access
-// - Azure Key Vault to store the SSL/TLS certificate
+// - Azure Key Vault with certificate imported via deployment script (proper KV certificate)
 // - User-Assigned Managed Identity with Key Vault access for the App Gateway
+// - Deployment script to import PFX as a KV certificate (no explicit storage account)
 // - HTTPS listeners with SNI for mail and autodiscover FQDNs (cert retrieved from Key Vault)
 // - Backend pool with Exchange server IPs
 // - Health probe for the EWS endpoint
@@ -64,7 +65,12 @@ param managedIdentityName string = 'id-appgw'
 param keyVaultCertificateName string = 'exchange-cert'
 
 @description('Base64-encoded PFX certificate to import into Key Vault.')
+@secure()
 param sslCertData string = ''
+
+@description('Password for the PFX certificate. Leave empty if the PFX was exported without a password.')
+@secure()
+param sslCertPassword string = ''
 
 @description('WAF firewall mode. Use Detection for pre-prod, Prevention for production.')
 @allowed(['Detection', 'Prevention'])
@@ -103,9 +109,9 @@ resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = if (deployAppGateway) {
 
 // ─── RBAC: Key Vault Secrets User role for the Managed Identity ─────────────
 // Role definition ID for "Key Vault Secrets User" = 4633458b-17de-408a-b874-0445c86b69e6
-// This allows the App Gateway (via its managed identity) to read the certificate secret.
+// This allows the App Gateway (via its managed identity) to read the certificate's backing secret.
 
-resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
+resource kvSecretsUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
   name: guid(kv.id, managedIdentity.id, '4633458b-17de-408a-b874-0445c86b69e6')
   scope: kv
   properties: {
@@ -118,18 +124,76 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// ─── Store the PFX certificate as a Key Vault secret ─────────────────────
-// The PFX is stored as a base64-encoded secret with content type application/x-pkcs12.
-// Application Gateway retrieves the certificate via the secret URI using the managed identity.
-// No deployment script or storage account needed.
+// ─── RBAC: Key Vault Certificates Officer role for the Managed Identity ─────
+// Role definition ID for "Key Vault Certificates Officer" = a4417e6f-fecd-4de8-b567-7b0420556985
+// This allows the deployment script (via the managed identity) to import the PFX as a certificate.
 
-resource kvSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (deployAppGateway) {
-  parent: kv
-  name: keyVaultCertificateName
+resource kvCertOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
+  name: guid(kv.id, managedIdentity.id, 'a4417e6f-fecd-4de8-b567-7b0420556985')
+  scope: kv
   properties: {
-    value: sslCertData
-    contentType: 'application/x-pkcs12'
+    principalId: managedIdentity!.properties.principalId
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'a4417e6f-fecd-4de8-b567-7b0420556985'
+    )
+    principalType: 'ServicePrincipal'
   }
+}
+
+// ─── Import PFX as a Key Vault certificate via deployment script ─────────────
+// Uses `az keyvault certificate import` to store the PFX as a proper KV certificate
+// (not just a secret). This gives expiry tracking, Event Grid notifications, and
+// easy renewal. No explicit storage account is created — the deployment script
+// service provisions a managed one automatically.
+//
+// Known limitation: If your subscription has an Azure Policy that enforces
+// `allowSharedKeyAccess: false` on storage accounts, the deployment script will
+// fail because the auto-provisioned storage account uses shared key access.
+// Workaround: Import the certificate manually after deployment (see README).
+
+resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (deployAppGateway) {
+  name: 'import-pfx-to-keyvault'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentity.id}': {}
+    }
+  }
+  properties: {
+    azCliVersion: '2.63.0'
+    retentionInterval: 'PT1H'
+    timeout: 'PT10M'
+    environmentVariables: [
+      { name: 'KEYVAULT_NAME', value: kv.name }
+      { name: 'CERT_NAME', value: keyVaultCertificateName }
+      { name: 'PFX_BASE64', secureValue: sslCertData }
+      { name: 'PFX_PASSWORD', secureValue: sslCertPassword }
+    ]
+    scriptContent: '''#!/bin/bash
+      set -e
+      echo "$PFX_BASE64" | base64 -d > /tmp/cert.pfx
+      if [ -n "$PFX_PASSWORD" ]; then
+        az keyvault certificate import \
+          --vault-name "$KEYVAULT_NAME" \
+          --name "$CERT_NAME" \
+          --file /tmp/cert.pfx \
+          --password "$PFX_PASSWORD"
+      else
+        az keyvault certificate import \
+          --vault-name "$KEYVAULT_NAME" \
+          --name "$CERT_NAME" \
+          --file /tmp/cert.pfx
+      fi
+      rm -f /tmp/cert.pfx
+    '''
+  }
+  dependsOn: [
+    kvSecretsUserRole
+    kvCertOfficerRole
+  ]
 }
 
 // ─── Log Analytics Workspace for WAF diagnostics ────────────────────────────
@@ -298,12 +362,12 @@ resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' = if (deployAp
     ]
 
     // SSL/TLS certificate retrieved from Key Vault via Managed Identity
-    // The secret URI comes from the deployment script that imported the PFX
+    // The unversioned secret URI ensures the App Gateway auto-picks up renewed certificates.
     sslCertificates: [
       {
         name: 'exchange-cert'
         properties: {
-          keyVaultSecretId: kvSecret!.properties.secretUri
+          keyVaultSecretId: '${kv!.properties.vaultUri}secrets/${keyVaultCertificateName}'
         }
       }
     ]
@@ -478,7 +542,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' = if (deployAp
     }
   }
   dependsOn: [
-    kvRoleAssignment
+    importCertScript
   ]
 }
 

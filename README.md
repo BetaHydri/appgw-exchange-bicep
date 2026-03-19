@@ -64,7 +64,7 @@ Internet
 
 | File | Description |
 |------|-------------|
-| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is stored as a Key Vault secret and referenced by the App Gateway using a managed identity. No deployment script or storage account needed. |
+| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is imported as a proper KV certificate via a deployment script (using `az keyvault certificate import`). The App Gateway retrieves the certificate's backing secret via a managed identity. No explicit storage account — the deployment script service handles it. |
 | `appGW_custom_deployment.bicep` | Simpler variant with inline PFX certificate (no Key Vault). Includes `deployAppGateway` toggle to deploy only the NSG/subnet. |
 | `appGW_nsg_subnet_association.bicep` | Shared module: creates the NSG with mandatory AppGW v2 rules and creates (or updates) the subnet. Used by both main templates. |
 | `appGW_custom_deployment_kv.json` | Compiled ARM template of the Key Vault variant. |
@@ -82,6 +82,7 @@ Internet
 - **Cross-resource-group** subnet deployment — the VNet can be in a different resource group (same subscription)
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
+- **Deployment script certificate import** — PFX imported as a proper KV certificate (expiry tracking, Event Grid, easy renewal)
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -100,6 +101,7 @@ Internet
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
 | `autodiscoverFqdn` | **Yes** | — | Autodiscover FQDN |
 | `sslCertData` | **Yes** | — | Base64-encoded PFX certificate |
+| `sslCertPassword` | No | _(empty)_ | PFX password. Leave empty if re-exported without password |
 | `location` | No | Resource group location | Azure region |
 | `appGwName` | No | `appgw-exchange` | Application Gateway name |
 | `appGwSubnetName` | No | `netenv-appGW` | Subnet name |
@@ -112,7 +114,7 @@ Internet
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Key Vault, cert, App GW, or diagnostics) |
 
-> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate secret, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
+> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, deployment script, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
 
 ### Inline variant (`appGW_custom_deployment.bicep`)
 
@@ -165,13 +167,32 @@ Subscription A                    Subscription B
 | VNet resource group (same subscription) | **Network Contributor** | When VNet is in a different resource group |
 | App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault |
 
-The Key Vault variant no longer uses deployment scripts or storage accounts. No Azure Policy exemptions are needed.
+The Key Vault variant uses a deployment script (`Microsoft.Resources/deploymentScripts`) to import the PFX as a proper Key Vault certificate. No explicit storage account is created — the deployment script service provisions a managed one automatically.
 
-### 1. Re-export the PFX certificate without password and Base64-encode it
+### 1. Base64-encode the PFX certificate
 
-The Key Vault variant stores the PFX as a Key Vault secret. Application Gateway reads it via managed identity, but **cannot decrypt a password-protected PFX** from a secret. You must re-export the certificate **without a password** before base64-encoding.
+The Key Vault variant uses a deployment script to import the PFX as a proper Key Vault certificate via `az keyvault certificate import`. You can pass either a **password-protected** or **password-free** PFX — the deployment script handles both cases.
 
-> **Background:** A PFX (PKCS#12) file can optionally be password-protected, but it is **not required**. Azure Application Gateway expects a password-free PFX when reading from a Key Vault secret. The steps below strip the password while preserving the private key.
+> **Note:** If you pass a password-protected PFX, provide the password via the `sslCertPassword` parameter. If the PFX has no password, leave `sslCertPassword` empty (the default).
+
+#### Base64-encode the PFX
+
+**PowerShell:**
+
+```powershell
+$certBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\your-cert.pfx"))
+```
+
+**Linux / macOS:**
+
+```bash
+certBase64=$(base64 -w 0 your-cert.pfx)
+# On macOS: certBase64=$(base64 -i your-cert.pfx)
+```
+
+#### (Optional) Re-export without password
+
+If you prefer not to pass the PFX password as a deployment parameter, you can re-export the certificate without a password first:
 
 #### Option A: PowerShell (Windows)
 
@@ -229,7 +250,7 @@ az deployment group create \
     mailFqdn="mail.contoso.com" \
     autodiscoverFqdn="autodiscover.contoso.com" \
     sslCertData="$certBase64" \
-    certExpiryNotificationEmail="admin@contoso.com"
+    sslCertPassword="YourPfxPassword"   # omit if PFX has no password
 ```
 
 ### 2b. Deploy via PowerShell (Key Vault variant)
@@ -246,7 +267,7 @@ New-AzResourceGroupDeployment `
   -mailFqdn "mail.contoso.com" `
   -autodiscoverFqdn "autodiscover.contoso.com" `
   -sslCertData $certBase64 `
-  -certExpiryNotificationEmail "admin@contoso.com"
+  -sslCertPassword "YourPfxPassword"   # omit if PFX has no password
 ```
 
 ### 2c. Deploy via Azure Portal
@@ -276,21 +297,24 @@ az deployment group create \
     deployAppGateway=false
 ```
 
-### 4. Post-deployment: Import the certificate as a Key Vault certificate (recommended)
+### 4. Post-deployment: Verify the certificate in Key Vault
 
-The Bicep deployment stores the PFX as a Key Vault **secret**. For production use, convert it to a proper Key Vault **certificate** to get expiry tracking, Event Grid notifications, and easy renewal.
-
-Since Key Vault does not allow a certificate and a secret with the same name to coexist, you must **delete the secret first**, then import the certificate:
+The deployment script automatically imports the PFX as a proper Key Vault **certificate**. After deployment, verify it in the Azure Portal under **Key Vault → Certificates**, or via CLI:
 
 ```powershell
-# Step 1: Delete the secret created by the Bicep deployment
-az keyvault secret delete --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+az keyvault certificate show --vault-name "kv-appgw-xxxx" --name "exchange-cert" --query "{name:name, expires:attributes.expires, thumbprint:x509ThumbprintHex}"
+```
 
-# Step 2: Wait for soft-delete, then purge
-Start-Sleep -Seconds 10
-az keyvault secret purge --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+**Benefits of the deployment script approach:**
+- Certificate expiry date visible in the Azure Portal under **Certificates** (not just Secrets)
+- Event Grid events: `Microsoft.KeyVault.CertificateNearExpiry` (30 days before expiry)
+- Easy renewal workflow (see below)
 
-# Step 3: Import the original PFX as a proper Key Vault certificate
+#### Manual import fallback (if the deployment script fails)
+
+If the deployment script fails (e.g., due to an Azure Policy blocking shared key access on storage accounts — see [Known Limitations](#known-limitations)), you can import the certificate manually after the deployment completes:
+
+```powershell
 az keyvault certificate import `
   --vault-name "kv-appgw-xxxx" `
   --name "exchange-cert" `
@@ -298,12 +322,16 @@ az keyvault certificate import `
   --password "YourPfxPassword"
 ```
 
-> **Note:** You need both **Key Vault Secrets Officer** and **Key Vault Certificates Officer** roles to perform these steps. The App Gateway may show a brief SSL error between the secret deletion and certificate import (typically a few seconds). For zero-downtime, perform this during a maintenance window.
+> **Note:** If the deployment script partially ran and created a secret with the same name, delete and purge the secret first:
+>
+> ```powershell
+> az keyvault secret delete --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+> Start-Sleep -Seconds 10
+> az keyvault secret purge --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+> az keyvault certificate import --vault-name "kv-appgw-xxxx" --name "exchange-cert" --file cert.pfx --password "pw"
+> ```
 
-**Benefits after import:**
-- Certificate expiry date visible in the Azure Portal under **Certificates** (not just Secrets)
-- Event Grid events: `Microsoft.KeyVault.CertificateNearExpiry` (30 days before expiry)
-- Easy renewal workflow (see below)
+> You need **Key Vault Secrets Officer** and **Key Vault Certificates Officer** roles to perform these steps.
 
 #### Grant yourself Key Vault access
 
@@ -364,13 +392,34 @@ The NSG created on the Application Gateway subnet contains the following **manda
 
 | Aspect | Key Vault variant | Inline variant |
 |--------|-------------------|----------------|
-| Certificate storage | Azure Key Vault (secret) | Embedded in ARM deployment |
-| Secret exposure | No secrets in parameter files | PFX data + password passed at deploy time |
+| Certificate storage | Azure Key Vault (proper certificate) | Embedded in ARM deployment |
+| Certificate import | Deployment script (`az keyvault certificate import`) | Inline PFX in App GW config |
+| Secret exposure | No secrets in parameter files (secure params) | PFX data + password passed at deploy time |
 | Certificate renewal | AppGW refreshes from KV every 4 hours | Requires redeployment |
-| Expiry notification | Not built-in (can be added via KV monitoring) | Not available |
-| Complexity | Moderate (managed identity, RBAC, KV secret) | Lower |
-| Policy compatibility | No storage account needed — works with all policies | No restrictions |
+| Expiry notification | Built-in via KV certificate expiry + Event Grid | Not available |
+| Complexity | Moderate (managed identity, RBAC, deployment script) | Lower |
+| Policy compatibility | May conflict with `allowSharedKeyAccess: false` policy (see below) | No restrictions |
 | Recommendation | **Production** | Dev/test only |
+
+---
+
+## Known Limitations
+
+### Deployment script and `allowSharedKeyAccess` policy
+
+The Key Vault variant uses a `Microsoft.Resources/deploymentScripts` resource to import the PFX certificate into Key Vault. The deployment script service automatically provisions a managed storage account for its execution container (Azure Container Instances).
+
+**If your subscription or resource group has an Azure Policy that enforces `allowSharedKeyAccess: false` on storage accounts**, the deployment script will fail because the auto-provisioned storage account uses shared key access.
+
+**Symptoms:**
+- Deployment fails at the `import-pfx-to-keyvault` deployment script resource.
+- Error message references `allowSharedKeyAccess` or storage account creation failure.
+
+**Workarounds:**
+
+1. **Exempt the resource group** from the `allowSharedKeyAccess` policy during deployment, then re-enable it.
+2. **Use the manual import fallback**: Deploy with `deployAppGateway=false` first (creates only NSG/subnet), then deploy again with `deployAppGateway=true` but skip the deployment script by importing the certificate manually (see [Manual import fallback](#manual-import-fallback-if-the-deployment-script-fails)).
+3. **Use the inline variant** (`appGW_custom_deployment.bicep`) which does not use deployment scripts or storage accounts.
 
 ---
 
