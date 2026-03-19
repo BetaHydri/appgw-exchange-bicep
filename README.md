@@ -79,7 +79,7 @@ Internet
 - **Dual HTTPS listeners** with SNI for mail and autodiscover FQDNs
 - **Dedicated health probes** per endpoint (EWS + Autodiscover)
 - **NSG** with mandatory Application Gateway v2 inbound rules (port 443, GatewayManager, AzureLoadBalancer)
-- **Cross-resource-group** subnet deployment — the VNet can be in a different resource group
+- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group **or** a different subscription
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
@@ -96,6 +96,7 @@ Internet
 |-----------|----------|---------|-------------|
 | `vnetName` | **Yes** | — | Name of the existing VNet |
 | `vnetResourceGroupName` | **Yes** | — | Resource group of the VNet |
+| `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
 | `appGwSubnetAddressPrefix` | **Yes** | — | Subnet CIDR, e.g. `10.0.3.0/24` |
 | `exchangeBackendIPs` | **Yes** | — | Array of backend server IPs |
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
@@ -124,6 +125,7 @@ Same as above except:
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
+| `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Application Gateway) |
 
 ---
@@ -136,6 +138,7 @@ Same as above except:
 - A **PFX certificate** with SANs matching `mailFqdn` and `autodiscoverFqdn`
 - **Contributor** role on the target resource group
 - **Network Contributor** role on the VNet resource group (for cross-RG subnet deployment)
+- When the VNet is in a **different subscription**, the deploying principal also needs **Network Contributor** on the VNet resource group in that subscription
 
 ### 1. Base64-encode the PFX certificate
 
@@ -162,6 +165,8 @@ az deployment group create \
     certExpiryNotificationEmail="admin@contoso.com"
 ```
 
+> **Cross-subscription:** If the VNet is in a different subscription, add `vnetSubscriptionId="<subscription-id>"` to the parameters above.
+
 ### 2b. Deploy via PowerShell (Key Vault variant)
 
 ```powershell
@@ -171,6 +176,7 @@ New-AzResourceGroupDeployment `
   -TemplateFile "appGW_custom_deployment_kv.bicep" `
   -vnetName "vnet-hub" `
   -vnetResourceGroupName "rg-network" `
+  # -vnetSubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" ` # uncomment for cross-subscription VNet
   -appGwSubnetAddressPrefix "10.0.3.0/24" `
   -exchangeBackendIPs @("10.0.1.10", "10.0.1.11") `
   -mailFqdn "mail.contoso.com" `
