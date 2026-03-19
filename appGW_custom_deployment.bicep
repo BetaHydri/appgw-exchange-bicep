@@ -30,6 +30,9 @@ param vnetResourceGroupName string
 @description('Subscription ID where the existing VNet is located. Defaults to the current subscription.')
 param vnetSubscriptionId string = subscription().subscriptionId
 
+@description('Azure region of the VNet resource group. The NSG must be created in the same region as the VNet. Defaults to the App Gateway location.')
+param vnetLocation string = location
+
 @description('Name of the subnet for the Application Gateway. Will be created (or updated) in the VNet during deployment.')
 param appGwSubnetName string = 'snet-appgw'
 
@@ -173,7 +176,7 @@ module nsgSubnetAssociation 'appGW_nsg_subnet_association.bicep' = {
   scope: resourceGroup(vnetSubscriptionId, vnetResourceGroupName)
   params: {
     nsgName: nsgName
-    location: location
+    location: vnetLocation
     vnetName: vnetName
     subnetName: appGwSubnetName
     subnetAddressPrefix: appGwSubnetAddressPrefix

@@ -32,6 +32,9 @@ param vnetResourceGroupName string
 @description('Subscription ID where the existing VNet is located. Defaults to the current subscription.')
 param vnetSubscriptionId string = subscription().subscriptionId
 
+@description('Azure region of the VNet resource group. The NSG must be created in the same region as the VNet. Defaults to the App Gateway location.')
+param vnetLocation string = location
+
 @description('Name of the subnet for the Application Gateway. Will be created (or updated) in the VNet during deployment.')
 param appGwSubnetName string = 'netenv-appGW'
 
@@ -82,6 +85,9 @@ param certExpiryNotificationEmail string = ''
 @description('Set to true to deploy the full Application Gateway stack (Key Vault, cert, App GW, diagnostics). Set to false to deploy only the NSG and subnet association.')
 param deployAppGateway bool = true
 
+@description('Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts.')
+param scriptStorageAccountName string = 'stappgwscript${uniqueString(resourceGroup().id)}'
+
 // ─── User-Assigned Managed Identity ─────────────────────────────────────────
 // The App Gateway uses this identity to retrieve the SSL certificate from Key Vault.
 
@@ -92,6 +98,40 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-
 
 // ─── Key Vault ──────────────────────────────────────────────────────────────
 // Stores the SSL/TLS certificate. enabledForDeployment and enableSoftDelete are configured.
+
+// ─── Storage Account for the deployment script ──────────────────────────────
+// The deployment script needs a storage account. If the subscription has a policy
+// blocking key-based auth on auto-created storage accounts, this explicit resource
+// with allowSharedKeyAccess ensures the script can run.
+
+resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (deployAppGateway) {
+  name: scriptStorageAccountName
+  location: location
+  sku: { name: 'Standard_LRS' }
+  kind: 'StorageV2'
+  properties: {
+    allowSharedKeyAccess: true
+    minimumTlsVersion: 'TLS1_2'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+// ─── RBAC: Storage Blob Data Contributor for the Managed Identity ───────────
+// Required so the deployment script can write its output to the storage account.
+
+resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
+  name: guid(scriptStorage.id, managedIdentity.id, 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  scope: scriptStorage
+  properties: {
+    principalId: managedIdentity!.properties.principalId
+    roleDefinitionId: subscriptionResourceId(
+      'Microsoft.Authorization/roleDefinitions',
+      'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    )
+    principalType: 'ServicePrincipal'
+  }
+}
+
 
 resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = if (deployAppGateway) {
   name: keyVaultName
@@ -163,6 +203,9 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
     azCliVersion: '2.67.0'
     retentionInterval: 'PT1H'
     timeout: 'PT10M'
+    storageAccountSettings: {
+      storageAccountName: scriptStorage.name
+    }
     environmentVariables: [
       { name: 'KV_NAME', value: kv.name }
       { name: 'CERT_NAME', value: keyVaultCertificateName }
@@ -206,6 +249,7 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
   dependsOn: [
     kvRoleAssignment
     kvCertOfficerRole
+    storageBlobRole
   ]
 }
 
@@ -314,7 +358,7 @@ module nsgSubnetAssociation 'appGW_nsg_subnet_association.bicep' = {
   scope: resourceGroup(vnetSubscriptionId, vnetResourceGroupName)
   params: {
     nsgName: nsgName
-    location: location
+    location: vnetLocation
     vnetName: vnetName
     subnetName: appGwSubnetName
     subnetAddressPrefix: appGwSubnetAddressPrefix

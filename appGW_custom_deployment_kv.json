@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "4500004993125719901"
+      "templateHash": "4383357092525424568"
     }
   },
   "parameters": {
@@ -40,6 +40,13 @@
       "defaultValue": "[subscription().subscriptionId]",
       "metadata": {
         "description": "Subscription ID where the existing VNet is located. Defaults to the current subscription."
+      }
+    },
+    "vnetLocation": {
+      "type": "string",
+      "defaultValue": "[parameters('location')]",
+      "metadata": {
+        "description": "Azure region of the VNet resource group. The NSG must be created in the same region as the VNet. Defaults to the App Gateway location."
       }
     },
     "appGwSubnetName": {
@@ -156,6 +163,13 @@
       "metadata": {
         "description": "Set to true to deploy the full Application Gateway stack (Key Vault, cert, App GW, diagnostics). Set to false to deploy only the NSG and subnet association."
       }
+    },
+    "scriptStorageAccountName": {
+      "type": "string",
+      "defaultValue": "[format('stappgwscript{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts."
+      }
     }
   },
   "resources": [
@@ -165,6 +179,38 @@
       "apiVersion": "2024-11-30",
       "name": "[parameters('managedIdentityName')]",
       "location": "[parameters('location')]"
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2025-01-01",
+      "name": "[parameters('scriptStorageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "allowSharedKeyAccess": true,
+        "minimumTlsVersion": "TLS1_2",
+        "supportsHttpsTrafficOnly": true
+      }
+    },
+    {
+      "condition": "[parameters('deployAppGateway')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2024-11-30').principalId]",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]"
+      ]
     },
     {
       "condition": "[parameters('deployAppGateway')]",
@@ -234,6 +280,9 @@
         "azCliVersion": "2.67.0",
         "retentionInterval": "PT1H",
         "timeout": "PT10M",
+        "storageAccountSettings": {
+          "storageAccountName": "[parameters('scriptStorageAccountName')]"
+        },
         "environmentVariables": [
           {
             "name": "KV_NAME",
@@ -262,7 +311,9 @@
         "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985'))]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]",
+        "[extensionResourceId(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'))]"
       ]
     },
     {
@@ -618,7 +669,7 @@
             "value": "[parameters('nsgName')]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[parameters('vnetLocation')]"
           },
           "vnetName": {
             "value": "[parameters('vnetName')]"

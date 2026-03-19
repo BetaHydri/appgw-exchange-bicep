@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "15346260782912076906"
+      "templateHash": "5209331244743466221"
     }
   },
   "parameters": {
@@ -40,6 +40,13 @@
       "defaultValue": "[subscription().subscriptionId]",
       "metadata": {
         "description": "Subscription ID where the existing VNet is located. Defaults to the current subscription."
+      }
+    },
+    "vnetLocation": {
+      "type": "string",
+      "defaultValue": "[parameters('location')]",
+      "metadata": {
+        "description": "Azure region of the VNet resource group. The NSG must be created in the same region as the VNet. Defaults to the App Gateway location."
       }
     },
     "appGwSubnetName": {
@@ -476,7 +483,7 @@
             "value": "[parameters('nsgName')]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[parameters('vnetLocation')]"
           },
           "vnetName": {
             "value": "[parameters('vnetName')]"
