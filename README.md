@@ -152,10 +152,10 @@ Subscription A                    Subscription B
 │  ├─ VNet-AppGW (peered) ◄────► │  ├─ VNet-Backend (peered)
 │  │  └─ snet-appgw              │  │  └─ snet-servers
 │  │     └─ Application Gateway  │  │     ├─ Exchange Server 1
-│  │                              │  │     └─ Exchange Server 2
-│  ├─ Key Vault                   │
-│  ├─ Public IP                   │
-│  └─ WAF Policy                  │
+│  │                             │  │     └─ Exchange Server 2
+│  ├─ Key Vault                  │
+│  ├─ Public IP                  │
+│  └─ WAF Policy                 │
 ```
 
 #### Required RBAC Permissions
