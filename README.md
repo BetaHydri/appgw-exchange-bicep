@@ -79,10 +79,11 @@ Internet
 - **Dual HTTPS listeners** with SNI for mail and autodiscover FQDNs
 - **Dedicated health probes** per endpoint (EWS + Autodiscover)
 - **NSG** with mandatory Application Gateway v2 inbound rules (port 443, GatewayManager, AzureLoadBalancer)
-- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group **or** a different subscription
+- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group, a different subscription, or even a different Azure region
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
+- **Policy-aware deployment script** — uses an explicit storage account so it works in subscriptions that block key-based auth on auto-created storage accounts
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -97,6 +98,7 @@ Internet
 | `vnetName` | **Yes** | — | Name of the existing VNet |
 | `vnetResourceGroupName` | **Yes** | — | Resource group of the VNet |
 | `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
+| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Required when the VNet is in a different region than the App Gateway resource group |
 | `appGwSubnetAddressPrefix` | **Yes** | — | Subnet CIDR, e.g. `10.0.3.0/24` |
 | `exchangeBackendIPs` | **Yes** | — | Array of backend server IPs |
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
@@ -113,10 +115,13 @@ Internet
 | `keyVaultName` | No | `netenv-kv-appgw` | Key Vault name |
 | `managedIdentityName` | No | `id-appgw` | Managed Identity name |
 | `keyVaultCertificateName` | No | `exchange-cert` | Certificate name in Key Vault |
+| `scriptStorageAccountName` | No | Auto-generated | Storage account name for the deployment script. Required by subscriptions that block key-based storage auth |
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Key Vault, cert, App GW, or diagnostics) |
 
-> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate import (deployment script), Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
+> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate import (deployment script), Storage Account, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
+
+> **Same-subscription usage:** All cross-subscription/cross-region parameters default to the current subscription and region. You don't need to set `vnetSubscriptionId`, `vnetLocation`, or `scriptStorageAccountName` when everything is in the same subscription and region — they just work.
 
 ### Inline variant (`appGW_custom_deployment.bicep`)
 
@@ -126,6 +131,7 @@ Same as above except:
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
+| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Required when the VNet is in a different region than the App Gateway resource group |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Application Gateway) |
 
 ---
