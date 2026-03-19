@@ -64,7 +64,7 @@ Internet
 
 | File | Description |
 |------|-------------|
-| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is imported into Key Vault via deployment script and referenced by the App Gateway using a managed identity. |
+| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is stored as a Key Vault secret and referenced by the App Gateway using a managed identity. No deployment script or storage account needed. |
 | `appGW_custom_deployment.bicep` | Simpler variant with inline PFX certificate (no Key Vault). Includes `deployAppGateway` toggle to deploy only the NSG/subnet. |
 | `appGW_nsg_subnet_association.bicep` | Shared module: creates the NSG with mandatory AppGW v2 rules and creates (or updates) the subnet. Used by both main templates. |
 | `appGW_custom_deployment_kv.json` | Compiled ARM template of the Key Vault variant. |
@@ -83,7 +83,6 @@ Internet
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
-- **Policy-aware deployment script** — uses an explicit storage account so it works in subscriptions that block key-based auth on auto-created storage accounts
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -104,24 +103,21 @@ Internet
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
 | `autodiscoverFqdn` | **Yes** | — | Autodiscover FQDN |
 | `sslCertData` | **Yes** | — | Base64-encoded PFX certificate |
-| `sslCertPassword` | **Yes** | — | PFX password (secure) |
-| `certExpiryNotificationEmail` | **Yes** | — | Email for cert expiry alerts |
 | `location` | No | Resource group location | Azure region |
 | `appGwName` | No | `appgw-exchange` | Application Gateway name |
 | `appGwSubnetName` | No | `netenv-appGW` | Subnet name |
 | `nsgName` | No | `nsg-appgw` | NSG name |
 | `publicIpName` | No | `pip-appgw` | Public IP name |
 | `logAnalyticsWorkspaceName` | No | `law-appgw` | Log Analytics Workspace name |
-| `keyVaultName` | No | `netenv-kv-appgw` | Key Vault name |
+| `keyVaultName` | No | `kv-appgw-xxxx` (auto) | Key Vault name (globally unique, auto-generated suffix) |
 | `managedIdentityName` | No | `id-appgw` | Managed Identity name |
 | `keyVaultCertificateName` | No | `exchange-cert` | Certificate name in Key Vault |
-| `scriptStorageAccountName` | No | Auto-generated | Storage account name for the deployment script. Required by subscriptions that block key-based storage auth |
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Key Vault, cert, App GW, or diagnostics) |
 
-> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate import (deployment script), Storage Account, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
+> **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate secret, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
 
-> **Same-subscription usage:** All cross-subscription/cross-region parameters default to the current subscription and region. You don't need to set `vnetSubscriptionId`, `vnetLocation`, or `scriptStorageAccountName` when everything is in the same subscription and region — they just work.
+> **Same-subscription usage:** All cross-subscription parameters default to the current subscription and region. You don't need to set `vnetSubscriptionId` or `vnetLocation` when everything is in the same subscription and region — they just work.
 
 ### Inline variant (`appGW_custom_deployment.bicep`)
 
@@ -152,28 +148,9 @@ Same as above except:
 | App Gateway resource group | **Contributor** | Always |
 | VNet resource group (same subscription) | **Network Contributor** | Cross-resource-group deployment |
 | VNet resource group (different subscription) | **Network Contributor** | Cross-subscription deployment |
-| App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault and Storage Account |
+| App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault |
 
-#### Azure Policy Constraints (Key Vault variant)
-
-The Key Vault variant uses a **deployment script** (`Microsoft.Resources/deploymentScripts`) to import the PFX certificate. This deployment script requires a **storage account with shared key access** to run. The following Azure Policies **must not be enforced** on the App Gateway subscription, or the deployment script will fail:
-
-| Policy | Effect | Impact |
-|--------|--------|--------|
-| `Storage accounts should disable shared key access` | **Deny** | Blocks the deployment script's storage account from being created with `allowSharedKeyAccess: true`. Error: `KeyBasedAuthenticationNotPermitted` |
-| `Storage accounts should restrict shared key access` | **Audit** | No impact (audit-only does not block deployment) |
-
-> **Note:** The `storageAccessMode: UserAssignedManagedIdentity` option that would avoid this limitation requires API version `2024-10-01-preview`, which is **not yet GA** and not available in all Azure regions. Once it becomes generally available, this constraint will be removed.
-
-**If you cannot modify the policy**, use the **inline certificate variant** (`appGW_custom_deployment.bicep`) instead — it embeds the PFX directly in the App Gateway resource without needing Key Vault, deployment scripts, or storage accounts.
-
-#### Summary: Which variant to use?
-
-| Scenario | Recommended variant |
-|----------|-------------------|
-| No restrictive storage policies | **Key Vault** (`appGW_custom_deployment_kv.bicep`) |
-| Policy blocks `allowSharedKeyAccess` on storage accounts | **Inline** (`appGW_custom_deployment.bicep`) |
-| Dev/test, simplest setup | **Inline** (`appGW_custom_deployment.bicep`) |
+The Key Vault variant no longer uses deployment scripts or storage accounts. No Azure Policy exemptions are needed.
 
 ### 1. Base64-encode the PFX certificate
 
@@ -196,7 +173,6 @@ az deployment group create \
     mailFqdn="mail.contoso.com" \
     autodiscoverFqdn="autodiscover.contoso.com" \
     sslCertData="$certBase64" \
-    sslCertPassword="YourPfxPassword" \
     certExpiryNotificationEmail="admin@contoso.com"
 ```
 
@@ -217,7 +193,6 @@ New-AzResourceGroupDeployment `
   -mailFqdn "mail.contoso.com" `
   -autodiscoverFqdn "autodiscover.contoso.com" `
   -sslCertData $certBase64 `
-  -sslCertPassword (ConvertTo-SecureString "YourPfxPassword" -AsPlainText -Force) `
   -certExpiryNotificationEmail "admin@contoso.com"
 ```
 
@@ -268,11 +243,12 @@ The NSG created on the Application Gateway subnet contains the following **manda
 
 | Aspect | Key Vault variant | Inline variant |
 |--------|-------------------|----------------|
-| Certificate storage | Azure Key Vault | Embedded in ARM deployment |
+| Certificate storage | Azure Key Vault (secret) | Embedded in ARM deployment |
 | Secret exposure | No secrets in parameter files | PFX data + password passed at deploy time |
 | Certificate renewal | AppGW refreshes from KV every 4 hours | Requires redeployment |
-| Expiry notification | 30-day email alert via Key Vault | Not available |
-| Complexity | Higher (managed identity, RBAC, deployment script) | Lower |
+| Expiry notification | Not built-in (can be added via KV monitoring) | Not available |
+| Complexity | Moderate (managed identity, RBAC, KV secret) | Lower |
+| Policy compatibility | No storage account needed — works with all policies | No restrictions |
 | Recommendation | **Production** | Dev/test only |
 
 ---

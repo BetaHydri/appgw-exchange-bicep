@@ -72,23 +72,13 @@ param keyVaultCertificateName string = 'exchange-cert'
 @description('Base64-encoded PFX certificate to import into Key Vault.')
 param sslCertData string = ''
 
-@description('Password for the PFX certificate.')
-@secure()
-param sslCertPassword string = ''
-
 @description('WAF firewall mode. Use Detection for pre-prod, Prevention for production.')
 @allowed(['Detection', 'Prevention'])
 param wafMode string = 'Detection'
 
-@description('Email address to receive certificate expiry notifications (30 days before expiration).')
-param certExpiryNotificationEmail string = ''
-
 @description('Set to true to deploy the full Application Gateway stack (Key Vault, cert, App GW, diagnostics). Set to false to deploy only the NSG and subnet association.')
 param deployAppGateway bool = true
 
-@description('Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts.')
-@maxLength(24)
-param scriptStorageAccountName string = 'stscript${uniqueString(resourceGroup().id)}'
 
 // ─── User-Assigned Managed Identity ─────────────────────────────────────────
 // The App Gateway uses this identity to retrieve the SSL certificate from Key Vault.
@@ -100,23 +90,6 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-
 
 // ─── Key Vault ──────────────────────────────────────────────────────────────
 // Stores the SSL/TLS certificate. enabledForDeployment and enableSoftDelete are configured.
-
-// ─── Storage Account for the deployment script ──────────────────────────────
-// The deployment script needs a storage account with shared key access.
-// NOTE: If your subscription has a deny policy on allowSharedKeyAccess,
-//       use the inline certificate variant instead (appGW_custom_deployment.bicep).
-
-resource scriptStorage 'Microsoft.Storage/storageAccounts@2025-01-01' = if (deployAppGateway) {
-  name: scriptStorageAccountName
-  location: location
-  sku: { name: 'Standard_LRS' }
-  kind: 'StorageV2'
-  properties: {
-    allowSharedKeyAccess: true
-    minimumTlsVersion: 'TLS1_2'
-    supportsHttpsTrafficOnly: true
-  }
-}
 
 resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = if (deployAppGateway) {
   name: keyVaultName
@@ -152,90 +125,18 @@ resource kvRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
-// ─── RBAC: Key Vault Certificates Officer for the deployment script identity ─
-// Role definition ID for "Key Vault Certificates Officer" = a4417e6f-fecd-4de8-b567-7b0420556985
-// Required so the deployment script can import the PFX certificate.
+// ─── Store the PFX certificate as a Key Vault secret ─────────────────────
+// The PFX is stored as a base64-encoded secret with content type application/x-pkcs12.
+// Application Gateway retrieves the certificate via the secret URI using the managed identity.
+// No deployment script or storage account needed.
 
-resource kvCertOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployAppGateway) {
-  name: guid(kv.id, managedIdentity.id, 'a4417e6f-fecd-4de8-b567-7b0420556985')
-  scope: kv
+resource kvSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (deployAppGateway) {
+  parent: kv
+  name: keyVaultCertificateName
   properties: {
-    principalId: managedIdentity!.properties.principalId
-    roleDefinitionId: subscriptionResourceId(
-      'Microsoft.Authorization/roleDefinitions',
-      'a4417e6f-fecd-4de8-b567-7b0420556985'
-    )
-    principalType: 'ServicePrincipal'
+    value: sslCertData
+    contentType: 'application/x-pkcs12'
   }
-}
-
-// ─── Import the password-protected PFX certificate into Key Vault ───────────
-// Uses a deployment script with Azure CLI to run 'az keyvault certificate import',
-// which properly handles the PFX password. The script outputs the certificate's
-// secret URI that the Application Gateway will reference.
-
-resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (deployAppGateway) {
-  name: 'import-appgw-cert'
-  location: location
-  kind: 'AzureCLI'
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
-  }
-  properties: {
-    azCliVersion: '2.67.0'
-    retentionInterval: 'PT1H'
-    timeout: 'PT10M'
-    storageAccountSettings: {
-      storageAccountName: scriptStorage.name
-      storageAccountKey: scriptStorage!.listKeys().keys[0].value
-    }
-    environmentVariables: [
-      { name: 'KV_NAME', value: kv.name }
-      { name: 'CERT_NAME', value: keyVaultCertificateName }
-      { name: 'PFX_BASE64', value: sslCertData }
-      { name: 'PFX_PASSWORD', secureValue: sslCertPassword }
-      { name: 'NOTIFY_EMAIL', value: certExpiryNotificationEmail }
-    ]
-    scriptContent: '''
-      set -e
-      echo "$PFX_BASE64" | base64 -d > /tmp/cert.pfx
-      az keyvault certificate import \
-        --vault-name "$KV_NAME" \
-        --name "$CERT_NAME" \
-        --file /tmp/cert.pfx \
-        --password "$PFX_PASSWORD"
-      rm -f /tmp/cert.pfx
-
-      # Configure lifetime action: email notification 30 days before expiry
-      POLICY=$(az keyvault certificate show \
-        --vault-name "$KV_NAME" \
-        --name "$CERT_NAME" \
-        --query policy -o json)
-      UPDATED_POLICY=$(echo "$POLICY" | jq '.lifetime_actions = [{"action":{"action_type":"EmailContacts"},"trigger":{"days_before_expiry":30}}]')
-      az keyvault certificate set-attributes \
-        --vault-name "$KV_NAME" \
-        --name "$CERT_NAME" \
-        --policy "$UPDATED_POLICY"
-
-      # Add notification contact (ignore error if contact already exists)
-      az keyvault certificate contact add \
-        --vault-name "$KV_NAME" \
-        --email "$NOTIFY_EMAIL" 2>/dev/null || true
-
-      SECRET_URI=$(az keyvault certificate show \
-        --vault-name "$KV_NAME" \
-        --name "$CERT_NAME" \
-        --query sid -o tsv)
-      echo "{\"secretUri\": \"$SECRET_URI\"}" > $AZ_SCRIPTS_OUTPUT_PATH
-    '''
-  }
-  dependsOn: [
-    kvRoleAssignment
-    kvCertOfficerRole
-  ]
 }
 
 // ─── Log Analytics Workspace for WAF diagnostics ────────────────────────────
@@ -409,7 +310,7 @@ resource appGw 'Microsoft.Network/applicationGateways@2024-05-01' = if (deployAp
       {
         name: 'exchange-cert'
         properties: {
-          keyVaultSecretId: importCert!.properties.outputs.secretUri
+          keyVaultSecretId: kvSecret!.properties.secretUri
         }
       }
     ]

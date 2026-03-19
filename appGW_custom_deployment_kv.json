@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "17570234753099826904"
+      "templateHash": "14562065055595253976"
     }
   },
   "parameters": {
@@ -133,13 +133,6 @@
         "description": "Base64-encoded PFX certificate to import into Key Vault."
       }
     },
-    "sslCertPassword": {
-      "type": "securestring",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Password for the PFX certificate."
-      }
-    },
     "wafMode": {
       "type": "string",
       "defaultValue": "Detection",
@@ -151,26 +144,11 @@
         "description": "WAF firewall mode. Use Detection for pre-prod, Prevention for production."
       }
     },
-    "certExpiryNotificationEmail": {
-      "type": "string",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Email address to receive certificate expiry notifications (30 days before expiration)."
-      }
-    },
     "deployAppGateway": {
       "type": "bool",
       "defaultValue": true,
       "metadata": {
         "description": "Set to true to deploy the full Application Gateway stack (Key Vault, cert, App GW, diagnostics). Set to false to deploy only the NSG and subnet association."
-      }
-    },
-    "scriptStorageAccountName": {
-      "type": "string",
-      "defaultValue": "[format('stscript{0}', uniqueString(resourceGroup().id))]",
-      "maxLength": 24,
-      "metadata": {
-        "description": "Name of the storage account used by the deployment script. Must be globally unique (3-24 lowercase alphanumeric). Required because some subscriptions block key-based auth on auto-created storage accounts."
       }
     }
   },
@@ -181,22 +159,6 @@
       "apiVersion": "2024-11-30",
       "name": "[parameters('managedIdentityName')]",
       "location": "[parameters('location')]"
-    },
-    {
-      "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.Storage/storageAccounts",
-      "apiVersion": "2025-01-01",
-      "name": "[parameters('scriptStorageAccountName')]",
-      "location": "[parameters('location')]",
-      "sku": {
-        "name": "Standard_LRS"
-      },
-      "kind": "StorageV2",
-      "properties": {
-        "allowSharedKeyAccess": true,
-        "minimumTlsVersion": "TLS1_2",
-        "supportsHttpsTrafficOnly": true
-      }
     },
     {
       "condition": "[parameters('deployAppGateway')]",
@@ -235,71 +197,15 @@
     },
     {
       "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2024-11-01",
+      "name": "[format('{0}/{1}', parameters('keyVaultName'), parameters('keyVaultCertificateName'))]",
       "properties": {
-        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '2024-11-30').principalId]",
-        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a4417e6f-fecd-4de8-b567-7b0420556985')]",
-        "principalType": "ServicePrincipal"
+        "value": "[parameters('sslCertData')]",
+        "contentType": "application/x-pkcs12"
       },
       "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]"
-      ]
-    },
-    {
-      "condition": "[parameters('deployAppGateway')]",
-      "type": "Microsoft.Resources/deploymentScripts",
-      "apiVersion": "2023-08-01",
-      "name": "import-appgw-cert",
-      "location": "[parameters('location')]",
-      "kind": "AzureCLI",
-      "identity": {
-        "type": "UserAssigned",
-        "userAssignedIdentities": {
-          "[format('{0}', resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')))]": {}
-        }
-      },
-      "properties": {
-        "azCliVersion": "2.67.0",
-        "retentionInterval": "PT1H",
-        "timeout": "PT10M",
-        "storageAccountSettings": {
-          "storageAccountName": "[parameters('scriptStorageAccountName')]",
-          "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), '2025-01-01').keys[0].value]"
-        },
-        "environmentVariables": [
-          {
-            "name": "KV_NAME",
-            "value": "[parameters('keyVaultName')]"
-          },
-          {
-            "name": "CERT_NAME",
-            "value": "[parameters('keyVaultCertificateName')]"
-          },
-          {
-            "name": "PFX_BASE64",
-            "value": "[parameters('sslCertData')]"
-          },
-          {
-            "name": "PFX_PASSWORD",
-            "secureValue": "[parameters('sslCertPassword')]"
-          },
-          {
-            "name": "NOTIFY_EMAIL",
-            "value": "[parameters('certExpiryNotificationEmail')]"
-          }
-        ],
-        "scriptContent": "      set -e\n      echo \"$PFX_BASE64\" | base64 -d > /tmp/cert.pfx\n      az keyvault certificate import \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --file /tmp/cert.pfx \\\n        --password \"$PFX_PASSWORD\"\n      rm -f /tmp/cert.pfx\n\n      # Configure lifetime action: email notification 30 days before expiry\n      POLICY=$(az keyvault certificate show \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --query policy -o json)\n      UPDATED_POLICY=$(echo \"$POLICY\" | jq '.lifetime_actions = [{\"action\":{\"action_type\":\"EmailContacts\"},\"trigger\":{\"days_before_expiry\":30}}]')\n      az keyvault certificate set-attributes \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --policy \"$UPDATED_POLICY\"\n\n      # Add notification contact (ignore error if contact already exists)\n      az keyvault certificate contact add \\\n        --vault-name \"$KV_NAME\" \\\n        --email \"$NOTIFY_EMAIL\" 2>/dev/null || true\n\n      SECRET_URI=$(az keyvault certificate show \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --query sid -o tsv)\n      echo \"{\\\"secretUri\\\": \\\"$SECRET_URI\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n    "
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), 'a4417e6f-fecd-4de8-b567-7b0420556985'))]",
-        "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
-        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName'))]"
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
       ]
     },
     {
@@ -448,7 +354,7 @@
           {
             "name": "exchange-cert",
             "properties": {
-              "keyVaultSecretId": "[reference(resourceId('Microsoft.Resources/deploymentScripts', 'import-appgw-cert'), '2023-08-01').outputs.secretUri]"
+              "keyVaultSecretId": "[reference(resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), parameters('keyVaultCertificateName')), '2024-11-01').secretUri]"
             }
           }
         ],
@@ -607,8 +513,8 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deploymentScripts', 'import-appgw-cert')]",
         "[extensionResourceId(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), 'Microsoft.Authorization/roleAssignments', guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName')), '4633458b-17de-408a-b874-0445c86b69e6'))]",
+        "[resourceId('Microsoft.KeyVault/vaults/secrets', parameters('keyVaultName'), parameters('keyVaultCertificateName'))]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', parameters('managedIdentityName'))]",
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('vnetSubscriptionId'), parameters('vnetResourceGroupName')), 'Microsoft.Resources/deployments', 'deploy-appgw-nsg')]",
         "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]",
