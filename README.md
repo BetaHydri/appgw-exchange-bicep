@@ -83,7 +83,12 @@ Internet
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Deployment script certificate import** — PFX imported as a proper KV certificate (expiry tracking, Event Grid, easy renewal)
-- **Certificate expiry email notification** — optional Event Grid subscription that emails you 30 days before the certificate expires
+- **Certificate expiry email notification** (optional) — When `certExpiryNotificationEmail` is provided, the template deploys three additional resources to deliver email alerts 30 days before the certificate expires:
+  - **Action Group** (`ag-cert-expiry`) — defines the email receiver
+  - **Event Grid System Topic** (`<kvName>-evgt`) — listens for events on the Key Vault
+  - **Event Grid Subscription** (`cert-near-expiry`) — filters for `Microsoft.KeyVault.CertificateNearExpiry` events and routes them as Azure Monitor alerts to the action group, which sends the email
+
+  These resources are only deployed when `certExpiryNotificationEmail` is set. Without them, Key Vault fires the expiry event internally but no notification is delivered.
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
