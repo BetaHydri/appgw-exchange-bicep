@@ -133,7 +133,6 @@ resource storageBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
-
 resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = if (deployAppGateway) {
   name: keyVaultName
   location: location
@@ -206,6 +205,7 @@ resource importCert 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (dep
     timeout: 'PT10M'
     storageAccountSettings: {
       storageAccountName: scriptStorage.name
+      storageAccountKey: scriptStorage!.listKeys().keys[0].value
     }
     environmentVariables: [
       { name: 'KV_NAME', value: kv.name }

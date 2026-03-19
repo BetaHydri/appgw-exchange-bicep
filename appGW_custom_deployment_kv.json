@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "14368910279540314217"
+      "templateHash": "5290017088854776106"
     }
   },
   "parameters": {
@@ -282,7 +282,8 @@
         "retentionInterval": "PT1H",
         "timeout": "PT10M",
         "storageAccountSettings": {
-          "storageAccountName": "[parameters('scriptStorageAccountName')]"
+          "storageAccountName": "[parameters('scriptStorageAccountName')]",
+          "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('scriptStorageAccountName')), '2025-01-01').keys[0].value]"
         },
         "environmentVariables": [
           {
