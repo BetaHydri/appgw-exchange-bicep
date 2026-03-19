@@ -82,7 +82,6 @@ Internet
 - **Cross-resource-group** subnet deployment — the VNet can be in a different resource group (same subscription)
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
-- **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -277,19 +276,64 @@ az deployment group create \
     deployAppGateway=false
 ```
 
-### 4. Post-deployment: Grant yourself Key Vault access (optional)
+### 4. Post-deployment: Import the certificate as a Key Vault certificate (recommended)
 
-The deployment only grants the **managed identity** access to Key Vault (Key Vault Secrets User). If you want to view or manage the certificate in the Azure Portal, you need to grant yourself access too:
+The Bicep deployment stores the PFX as a Key Vault **secret**. For production use, convert it to a proper Key Vault **certificate** to get expiry tracking, Event Grid notifications, and easy renewal:
 
 ```powershell
-# Grant yourself "Key Vault Secrets Officer" on the Key Vault
+# Import the PFX as a proper Key Vault certificate (replaces the secret)
+az keyvault certificate import `
+  --vault-name "kv-appgw-xxxx" `
+  --name "exchange-cert" `
+  --file "C:\path\to\your-cert.pfx" `
+  --password "YourPfxPassword"
+```
+
+This creates a certificate object **with the same name** as the secret. Key Vault automatically generates a backing secret that the App Gateway continues to read via `keyVaultSecretId` — no changes to the App Gateway needed.
+
+**Benefits after import:**
+- Certificate expiry date visible in the Azure Portal under **Certificates** (not just Secrets)
+- Event Grid events: `Microsoft.KeyVault.CertificateNearExpiry` (30 days before expiry)
+- Easy renewal workflow (see below)
+
+#### Grant yourself Key Vault access (optional)
+
+The deployment only grants the **managed identity** access. To view or manage certificates in the portal:
+
+```powershell
 $kvName = "kv-appgw-xxxx"  # replace with your actual Key Vault name
 $kv = Get-AzKeyVault -VaultName $kvName
 $userId = (Get-AzADUser -SignedIn).Id
-New-AzRoleAssignment -ObjectId $userId -RoleDefinitionName "Key Vault Secrets Officer" -Scope $kv.ResourceId
+New-AzRoleAssignment -ObjectId $userId -RoleDefinitionName "Key Vault Certificates Officer" -Scope $kv.ResourceId
 ```
 
-> **Note:** RBAC role assignments can take up to **5 minutes** to propagate. If you see `The operation is not allowed by RBAC` in the Key Vault portal immediately after deployment, wait a few minutes and refresh.
+> **Note:** RBAC role assignments can take up to **5 minutes** to propagate.
+
+### 5. Certificate renewal
+
+When the certificate is near expiry, renew it by importing the new PFX with the **same name**:
+
+```powershell
+az keyvault certificate import `
+  --vault-name "kv-appgw-xxxx" `
+  --name "exchange-cert" `
+  --file "C:\path\to\new-cert.pfx" `
+  --password "NewPfxPassword"
+```
+
+Key Vault creates a **new version** of the certificate (and its backing secret). The Application Gateway **automatically picks up the new certificate within 4 hours** — no redeployment, no restart, no listener changes needed.
+
+```text
+Timeline:
+  ┌─────────────────────────────────────────────────────────┐
+  │  1. Import new PFX → KV creates new cert version        │
+  │  2. Wait up to 4 hours (App GW polling interval)        │
+  │  3. App GW automatically binds new cert to listeners    │
+  │  4. Old cert version remains in KV (can be purged)      │
+  └─────────────────────────────────────────────────────────┘
+```
+
+> **Tip:** If you need the new certificate applied immediately (not wait 4 hours), you can trigger an App Gateway restart via the Azure Portal or `az network application-gateway stop/start`.
 
 ---
 
