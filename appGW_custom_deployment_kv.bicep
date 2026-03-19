@@ -156,7 +156,7 @@ resource kvCertOfficerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 // fail because the auto-provisioned storage account uses shared key access.
 // Workaround: See README for workarounds.
 
-resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (deployAppGateway) {
+resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = if (deployAppGateway && !empty(sslCertData)) {
   name: 'import-pfx-to-keyvault'
   location: location
   kind: 'AzureCLI'
@@ -234,6 +234,8 @@ resource certExpirySubscription 'Microsoft.EventGrid/systemTopics/eventSubscript
   parent: kvEventGridTopic
   name: 'cert-near-expiry'
   properties: {
+    deliveryWithResourceIdentity: null
+    eventDeliverySchema: 'CloudEventSchemaV1_0'
     destination: {
       endpointType: 'MonitorAlert'
       properties: {
