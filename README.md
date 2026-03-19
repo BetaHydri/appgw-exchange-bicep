@@ -320,7 +320,9 @@ If the deployment script fails (e.g., due to an Azure Policy blocking shared key
 
 **Recovery steps:**
 
-1. Import the certificate manually into the Key Vault that was created:
+1. Grant yourself **Key Vault Certificates Officer** on the Key Vault (see [Grant yourself Key Vault access](#grant-yourself-key-vault-access)).
+
+2. Import the certificate manually into the Key Vault that was created:
 
 ```powershell
 az keyvault certificate import `
@@ -330,9 +332,7 @@ az keyvault certificate import `
   --password "YourPfxPassword"
 ```
 
-2. Temporarily **exempt the resource group** from the `allowSharedKeyAccess` policy, then re-run the same deployment command. The deployment script will succeed (it is idempotent — `az keyvault certificate import` creates a new version if the certificate already exists), and the Application Gateway will be created.
-
-3. Re-enable the policy after the deployment completes.
+3. **Redeploy the same template without providing `sslCertData`** (leave it empty). Since `sslCertData` is empty, the deployment script is **automatically skipped**, so the `allowSharedKeyAccess` policy will not block the deployment. The Application Gateway and all remaining resources will be created using the certificate you imported manually.
 
 > **Note:** If the deployment script partially ran and created a Key Vault **secret** (not certificate) with the same name, you must delete and purge it first:
 >
@@ -342,7 +342,7 @@ az keyvault certificate import `
 > az keyvault secret purge --vault-name "kv-appgw-xxxx" --name "exchange-cert"
 > ```
 >
-> Then import the certificate (step 1 above).
+> Then import the certificate (step 2 above).
 
 > You need **Key Vault Secrets Officer** and **Key Vault Certificates Officer** roles to perform these steps.
 
@@ -431,7 +431,17 @@ The Key Vault variant uses a `Microsoft.Resources/deploymentScripts` resource to
 **Workarounds:**
 
 1. **Exempt the resource group** from the `allowSharedKeyAccess` policy during deployment, then re-enable it.
-2. **Use the manual import fallback**: Import the certificate manually into Key Vault, then temporarily exempt the policy and re-run the deployment (see [Manual import fallback](#manual-import-fallback-if-the-deployment-script-fails)).
+2. **Manual import + redeploy without `sslCertData`**:
+   1. Import the certificate manually into Key Vault:
+      ```powershell
+      az keyvault certificate import `
+        --vault-name "kv-appgw-xxxx" `
+        --name "exchange-cert" `
+        --file "C:\path\to\your-cert.pfx" `
+        --password "YourPfxPassword"
+      ```
+      > You may need to grant yourself **Key Vault Certificates Officer** first (see [Grant yourself Key Vault access](#grant-yourself-key-vault-access)).
+   2. **Redeploy the same template without providing `sslCertData`** (leave it empty). The deployment script is automatically skipped when `sslCertData` is empty, so the `allowSharedKeyAccess` policy will not block the deployment. All other resources (App Gateway, WAF, diagnostics, Event Grid notifications) will be created normally, using the certificate you imported manually.
 3. **Use the inline variant** (`appGW_custom_deployment.bicep`) which does not use deployment scripts or storage accounts.
 
 ---
