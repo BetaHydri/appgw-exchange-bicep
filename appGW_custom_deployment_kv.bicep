@@ -79,7 +79,6 @@ param wafMode string = 'Detection'
 @description('Set to true to deploy the full Application Gateway stack (Key Vault, cert, App GW, diagnostics). Set to false to deploy only the NSG and subnet association.')
 param deployAppGateway bool = true
 
-
 // ─── User-Assigned Managed Identity ─────────────────────────────────────────
 // The App Gateway uses this identity to retrieve the SSL certificate from Key Vault.
 

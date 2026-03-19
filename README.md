@@ -152,11 +152,22 @@ Same as above except:
 
 The Key Vault variant no longer uses deployment scripts or storage accounts. No Azure Policy exemptions are needed.
 
-### 1. Base64-encode the PFX certificate
+### 1. Re-export the PFX certificate without password and Base64-encode it
+
+The Key Vault variant stores the PFX as a Key Vault secret. Application Gateway reads it via managed identity, but **cannot decrypt a password-protected PFX** from a secret. You must re-export the certificate **without a password** before base64-encoding.
 
 ```powershell
-$certBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\your-cert.pfx"))
+# Re-export PFX without password and base64-encode
+$pfxPassword = ConvertTo-SecureString -String "YourPfxPassword" -Force -AsPlainText
+$collection = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+$collection.Import("C:\path\to\your-cert.pfx", $pfxPassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
+$pfxBytes = $collection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx)
+$certBase64 = [Convert]::ToBase64String($pfxBytes)
 ```
+
+> **Note:** The private key must be loaded with the `Exportable` flag so it can be re-exported without a password. The resulting `$certBase64` contains a password-free PFX that the Application Gateway can consume directly from Key Vault.
+>
+> If you're using the **inline variant** (`appGW_custom_deployment.bicep`), you can pass the original password-protected PFX with `sslCertPassword` instead — no re-export needed.
 
 ### 2a. Deploy via Azure CLI (Key Vault variant — recommended)
 
