@@ -278,10 +278,19 @@ az deployment group create \
 
 ### 4. Post-deployment: Import the certificate as a Key Vault certificate (recommended)
 
-The Bicep deployment stores the PFX as a Key Vault **secret**. For production use, convert it to a proper Key Vault **certificate** to get expiry tracking, Event Grid notifications, and easy renewal:
+The Bicep deployment stores the PFX as a Key Vault **secret**. For production use, convert it to a proper Key Vault **certificate** to get expiry tracking, Event Grid notifications, and easy renewal.
+
+Since Key Vault does not allow a certificate and a secret with the same name to coexist, you must **delete the secret first**, then import the certificate:
 
 ```powershell
-# Import the PFX as a proper Key Vault certificate (replaces the secret)
+# Step 1: Delete the secret created by the Bicep deployment
+az keyvault secret delete --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+
+# Step 2: Wait for soft-delete, then purge
+Start-Sleep -Seconds 10
+az keyvault secret purge --vault-name "kv-appgw-xxxx" --name "exchange-cert"
+
+# Step 3: Import the original PFX as a proper Key Vault certificate
 az keyvault certificate import `
   --vault-name "kv-appgw-xxxx" `
   --name "exchange-cert" `
@@ -289,14 +298,14 @@ az keyvault certificate import `
   --password "YourPfxPassword"
 ```
 
-This creates a certificate object **with the same name** as the secret. Key Vault automatically generates a backing secret that the App Gateway continues to read via `keyVaultSecretId` — no changes to the App Gateway needed.
+> **Note:** You need both **Key Vault Secrets Officer** and **Key Vault Certificates Officer** roles to perform these steps. The App Gateway may show a brief SSL error between the secret deletion and certificate import (typically a few seconds). For zero-downtime, perform this during a maintenance window.
 
 **Benefits after import:**
 - Certificate expiry date visible in the Azure Portal under **Certificates** (not just Secrets)
 - Event Grid events: `Microsoft.KeyVault.CertificateNearExpiry` (30 days before expiry)
 - Easy renewal workflow (see below)
 
-#### Grant yourself Key Vault access (optional)
+#### Grant yourself Key Vault access
 
 The deployment only grants the **managed identity** access. To view or manage certificates in the portal:
 
