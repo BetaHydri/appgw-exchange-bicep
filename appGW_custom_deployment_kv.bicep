@@ -237,6 +237,8 @@ resource certExpirySubscription 'Microsoft.EventGrid/systemTopics/eventSubscript
     destination: {
       endpointType: 'MonitorAlert'
       properties: {
+        severity: 'Sev3'
+        description: 'SSL certificate in Key Vault is near expiry'
         actionGroups: [
           certExpiryActionGroup.id
         ]

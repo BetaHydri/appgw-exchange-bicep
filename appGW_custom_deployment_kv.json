@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "8988702076127716768"
+      "templateHash": "12333779028618760954"
     }
   },
   "parameters": {
@@ -296,6 +296,8 @@
         "destination": {
           "endpointType": "MonitorAlert",
           "properties": {
+            "severity": "Sev3",
+            "description": "SSL certificate in Key Vault is near expiry",
             "actionGroups": [
               "[resourceId('Microsoft.Insights/actionGroups', 'ag-cert-expiry')]"
             ]
