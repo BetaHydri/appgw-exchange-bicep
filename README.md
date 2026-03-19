@@ -172,14 +172,44 @@ The Key Vault variant no longer uses deployment scripts or storage accounts. No 
 
 The Key Vault variant stores the PFX as a Key Vault secret. Application Gateway reads it via managed identity, but **cannot decrypt a password-protected PFX** from a secret. You must re-export the certificate **without a password** before base64-encoding.
 
+> **Background:** A PFX (PKCS#12) file can optionally be password-protected, but it is **not required**. Azure Application Gateway expects a password-free PFX when reading from a Key Vault secret. The steps below strip the password while preserving the private key.
+
+#### Option A: PowerShell (Windows)
+
 ```powershell
-# Re-export PFX without password and base64-encode
 $pfxPassword = ConvertTo-SecureString -String "YourPfxPassword" -Force -AsPlainText
 $collection = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
 $collection.Import("C:\path\to\your-cert.pfx", $pfxPassword, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable)
 $pfxBytes = $collection.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx)
 $certBase64 = [Convert]::ToBase64String($pfxBytes)
 ```
+
+#### Option B: OpenSSL (Linux / macOS / Windows with OpenSSL)
+
+```bash
+# Step 1: Extract cert + key to PEM (enter the PFX password when prompted)
+openssl pkcs12 -in your-cert.pfx -out temp.pem -nodes
+
+# Step 2: Re-package as password-free PFX
+openssl pkcs12 -in temp.pem -export -out no-password.pfx -passout pass:
+
+# Step 3: Base64-encode
+certBase64=$(base64 -w 0 no-password.pfx)
+
+# Clean up
+rm -f temp.pem
+```
+
+> On macOS, use `base64 -i no-password.pfx` instead of `base64 -w 0`.
+
+#### Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Schlüssel ist im angegebenen Status nicht gültig` / `Key is not valid in the specified state` | Private key was imported as **non-exportable** | Import the PFX with `-Exportable` flag: `Import-PfxCertificate -FilePath cert.pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pwd -Exportable`, then export from the cert store |
+| `Das angegebene Netzwerkkennwort ist falsch` / `The specified network password is incorrect` | Wrong PFX password | Verify the password. Use `ConvertTo-SecureString` instead of `Read-Host -AsSecureString` to avoid terminal encoding issues with special characters |
+| `certBase64` length is **116 chars** or less | Export produced an empty PFX (no private key) | The Import failed silently. Check for errors in the previous step. Ensure the password is correct and the `Exportable` flag is set |
+| OpenSSL: `unable to load private key` | PFX uses a newer encryption algorithm not supported by older OpenSSL | Upgrade OpenSSL to 3.x, or add `-legacy` flag: `openssl pkcs12 -in cert.pfx -out temp.pem -nodes -legacy` |
 
 > **Note:** The private key must be loaded with the `Exportable` flag so it can be re-exported without a password. The resulting `$certBase64` contains a password-free PFX that the Application Gateway can consume directly from Key Vault.
 >
