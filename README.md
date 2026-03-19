@@ -79,7 +79,7 @@ Internet
 - **Dual HTTPS listeners** with SNI for mail and autodiscover FQDNs
 - **Dedicated health probes** per endpoint (EWS + Autodiscover)
 - **NSG** with mandatory Application Gateway v2 inbound rules (port 443, GatewayManager, AzureLoadBalancer)
-- **Cross-resource-group and cross-subscription** subnet deployment — the VNet can be in a different resource group or a different subscription
+- **Cross-resource-group** subnet deployment — the VNet can be in a different resource group (same subscription)
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
 - **Certificate expiry notifications** — 30-day email alert (Key Vault variant only)
@@ -95,9 +95,7 @@ Internet
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `vnetName` | **Yes** | — | Name of the existing VNet |
-| `vnetResourceGroupName` | **Yes** | — | Resource group of the VNet |
-| `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
-| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Only needed when the App Gateway RG and VNet RG have different default locations (both must still be in the same region) |
+| `vnetResourceGroupName` | **Yes** | — | Resource group of the VNet (can be different from the App GW resource group) |
 | `appGwSubnetAddressPrefix` | **Yes** | — | Subnet CIDR, e.g. `10.0.3.0/24` |
 | `exchangeBackendIPs` | **Yes** | — | Array of backend server IPs |
 | `mailFqdn` | **Yes** | — | Mail FQDN, e.g. `mail.contoso.com` |
@@ -117,8 +115,6 @@ Internet
 
 > **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, certificate secret, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
 
-> **Same-subscription usage:** All cross-subscription parameters default to the current subscription and region. You don't need to set `vnetSubscriptionId` or `vnetLocation` when everything is in the same subscription and region — they just work.
-
 ### Inline variant (`appGW_custom_deployment.bicep`)
 
 Same as above except:
@@ -126,8 +122,6 @@ Same as above except:
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `vnetSubscriptionId` | No | Current subscription | Subscription ID where the VNet is located (for cross-subscription deployments) |
-| `vnetLocation` | No | Same as `location` | Azure region of the VNet. Only needed when the App Gateway RG and VNet RG have different default locations (both must still be in the same region) |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Application Gateway) |
 
 ---
@@ -136,18 +130,20 @@ Same as above except:
 
 ### Prerequisites
 
-- An existing **VNet** in the **same Azure region** as the Application Gateway (the subnet will be created automatically)
+- An existing **VNet** in the **same subscription and Azure region** as the Application Gateway (the subnet will be created automatically)
 - A **PFX certificate** with SANs matching `mailFqdn` and `autodiscoverFqdn`
 
-> **Important — Region constraint:** The Application Gateway is a regional resource. The VNet/subnet used by the App Gateway **must be in the same Azure region** as the App Gateway itself. Cross-subscription deployments are supported, but cross-region is **not**. Make sure the resource group you deploy to and the VNet are in the same region.
+> **Important — Subscription and Region constraints:**
+> - The Application Gateway **must be in the same subscription** as its VNet/subnet. Cross-subscription VNet references are **not supported** by the Application Gateway resource provider.
+> - The Application Gateway **must be in the same Azure region** as the VNet.
+> - The App GW resource group and VNet resource group can be **different** (cross-resource-group is supported within the same subscription).
 
 #### Required RBAC Permissions
 
 | Scope | Role | When needed |
 |-------|------|-------------|
 | App Gateway resource group | **Contributor** | Always |
-| VNet resource group (same subscription) | **Network Contributor** | Cross-resource-group deployment |
-| VNet resource group (different subscription) | **Network Contributor** | Cross-subscription deployment |
+| VNet resource group (same subscription) | **Network Contributor** | When VNet is in a different resource group |
 | App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault |
 
 The Key Vault variant no longer uses deployment scripts or storage accounts. No Azure Policy exemptions are needed.
@@ -187,8 +183,6 @@ az deployment group create \
     certExpiryNotificationEmail="admin@contoso.com"
 ```
 
-> **Cross-subscription:** If the VNet is in a different subscription, add `vnetSubscriptionId="<subscription-id>"` to the parameters above.
-
 ### 2b. Deploy via PowerShell (Key Vault variant)
 
 ```powershell
@@ -198,7 +192,6 @@ New-AzResourceGroupDeployment `
   -TemplateFile "appGW_custom_deployment_kv.bicep" `
   -vnetName "vnet-hub" `
   -vnetResourceGroupName "rg-network" `
-  # -vnetSubscriptionId "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" ` # uncomment for cross-subscription VNet
   -appGwSubnetAddressPrefix "10.0.3.0/24" `
   -exchangeBackendIPs @("10.0.1.10", "10.0.1.11") `
   -mailFqdn "mail.contoso.com" `
