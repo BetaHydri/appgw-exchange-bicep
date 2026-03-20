@@ -339,7 +339,37 @@ az keyvault certificate import `
   --password "YourPfxPassword"
 ```
 
-3. **Redeploy the same template without providing `sslCertData`** (leave it empty). Since `sslCertData` is empty, the deployment script is **automatically skipped**, so the `allowSharedKeyAccess` policy will not block the deployment. The Application Gateway and all remaining resources will be created using the certificate you imported manually.
+3. **Configure certificate expiry notifications manually** (normally done by the deployment script):
+
+   **Add certificate contacts** (one command per email address):
+
+   ```powershell
+   az keyvault certificate contact add `
+     --vault-name "kv-appgw-xxxx" `
+     --email "admin@contoso.com"
+
+   az keyvault certificate contact add `
+     --vault-name "kv-appgw-xxxx" `
+     --email "ops@contoso.com"
+   ```
+
+   **Set the lifetime action** (email contacts 30 days before expiry):
+
+   ```powershell
+   $policy = az keyvault certificate show `
+     --vault-name "kv-appgw-xxxx" `
+     --name "exchange-cert" `
+     --query policy -o json | jq '.lifetime_actions = [{"action":{"action_type":"EmailContacts"},"trigger":{"days_before_expiry":30}}]'
+
+   az keyvault certificate set-attributes `
+     --vault-name "kv-appgw-xxxx" `
+     --name "exchange-cert" `
+     --policy "$policy"
+   ```
+
+   > **Note:** This step requires `jq` to be installed. On Windows, install via `winget install jqlang.jq` or `choco install jq`.
+
+4. **Redeploy the same template without providing `sslCertData`** (leave it empty). Since `sslCertData` is empty, the deployment script is **automatically skipped**, so the `allowSharedKeyAccess` policy will not block the deployment. The Application Gateway and all remaining resources will be created using the certificate you imported manually.
 
 > **Note:** If the deployment script partially ran and created a Key Vault **secret** (not certificate) with the same name, you must delete and purge it first:
 >
