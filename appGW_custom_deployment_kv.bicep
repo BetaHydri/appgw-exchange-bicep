@@ -195,14 +195,20 @@ resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = i
       rm -f /tmp/cert.pfx
 
       # Configure lifetime action: email notification 30 days before expiry
+      POLICY_JSON=$(az keyvault certificate show \
+        --vault-name "$KV_NAME" \
+        --name "$CERT_NAME" \
+        --query policy -o json)
+      UPDATED_POLICY=$(echo "$POLICY_JSON" | python3 -c "
+import sys, json
+policy = json.load(sys.stdin)
+policy['lifetime_actions'] = [{'action':{'action_type':'EmailContacts'},'trigger':{'days_before_expiry':30}}]
+print(json.dumps(policy))
+")
       az keyvault certificate set-attributes \
         --vault-name "$KV_NAME" \
         --name "$CERT_NAME" \
-        --policy "$(az keyvault certificate show \
-          --vault-name "$KV_NAME" \
-          --name "$CERT_NAME" \
-          --query policy -o json | \
-          jq '.lifetime_actions = [{"action":{"action_type":"EmailContacts"},"trigger":{"days_before_expiry":30}}]')"
+        --policy "$UPDATED_POLICY"
 
       # Add notification contacts (skip if already exists to ensure idempotent redeployments)
       if [ -n "$NOTIFY_EMAILS" ]; then
