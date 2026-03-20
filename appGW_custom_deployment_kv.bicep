@@ -6,7 +6,7 @@
 // - Azure Key Vault with certificate imported via deployment script (proper KV certificate)
 // - User-Assigned Managed Identity with Key Vault access for the App Gateway
 // - Deployment script to import PFX as a KV certificate (no explicit storage account)
-// - Certificate expiry notification via Event Grid + email action group
+// - Certificate expiry notification via Key Vault lifetime action + Event Grid + email action group
 // - HTTPS listeners with SNI for mail and autodiscover FQDNs (cert retrieved from Key Vault)
 // - Backend pool with Exchange server IPs
 // - Health probe for the EWS endpoint
@@ -73,8 +73,8 @@ param sslCertData string = ''
 @secure()
 param sslCertPassword string = ''
 
-@description('Email address to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup.')
-param certExpiryNotificationEmail string = ''
+@description('Array of email addresses to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup.')
+param certExpiryNotificationEmails array = []
 
 @description('WAF firewall mode. Use Detection for pre-prod, Prevention for production.')
 @allowed(['Detection', 'Prevention'])
@@ -171,27 +171,59 @@ resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = i
     retentionInterval: 'PT1H'
     timeout: 'PT10M'
     environmentVariables: [
-      { name: 'KEYVAULT_NAME', value: kv.name }
+      { name: 'KV_NAME', value: kv.name }
       { name: 'CERT_NAME', value: keyVaultCertificateName }
       { name: 'PFX_BASE64', secureValue: sslCertData }
       { name: 'PFX_PASSWORD', secureValue: sslCertPassword }
+      { name: 'NOTIFY_EMAILS', value: join(certExpiryNotificationEmails, ',') }
     ]
-    scriptContent: '''#!/bin/bash
+    scriptContent: '''
       set -e
       echo "$PFX_BASE64" | base64 -d > /tmp/cert.pfx
       if [ -n "$PFX_PASSWORD" ]; then
         az keyvault certificate import \
-          --vault-name "$KEYVAULT_NAME" \
+          --vault-name "$KV_NAME" \
           --name "$CERT_NAME" \
           --file /tmp/cert.pfx \
           --password "$PFX_PASSWORD"
       else
         az keyvault certificate import \
-          --vault-name "$KEYVAULT_NAME" \
+          --vault-name "$KV_NAME" \
           --name "$CERT_NAME" \
           --file /tmp/cert.pfx
       fi
       rm -f /tmp/cert.pfx
+
+      # Configure lifetime action: email notification 30 days before expiry
+      az keyvault certificate set-attributes \
+        --vault-name "$KV_NAME" \
+        --name "$CERT_NAME" \
+        --policy "$(az keyvault certificate show \
+          --vault-name "$KV_NAME" \
+          --name "$CERT_NAME" \
+          --query policy -o json | \
+          jq '.lifetime_actions = [{"action":{"action_type":"EmailContacts"},"trigger":{"days_before_expiry":30}}]')"
+
+      # Add notification contacts (skip if already exists to ensure idempotent redeployments)
+      if [ -n "$NOTIFY_EMAILS" ]; then
+        EXISTING=$(az keyvault certificate contact list --vault-name "$KV_NAME" --query "[].emailAddress" -o tsv 2>/dev/null || true)
+        IFS=',' read -ra EMAILS <<< "$NOTIFY_EMAILS"
+        for EMAIL in "${EMAILS[@]}"; do
+          if echo "$EXISTING" | grep -qiF "$EMAIL"; then
+            echo "Contact $EMAIL already exists, skipping."
+          else
+            az keyvault certificate contact add \
+              --vault-name "$KV_NAME" \
+              --email "$EMAIL"
+          fi
+        done
+      fi
+
+      SECRET_URI=$(az keyvault certificate show \
+        --vault-name "$KV_NAME" \
+        --name "$CERT_NAME" \
+        --query sid -o tsv)
+      echo "{\"secretUri\": \"$SECRET_URI\"}" > $AZ_SCRIPTS_OUTPUT_PATH
     '''
   }
   dependsOn: [
@@ -205,23 +237,23 @@ resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = i
 // when the certificate is within 30 days of expiry (CertificateNearExpiry event).
 // Only deployed if certExpiryNotificationEmail is provided.
 
-resource certExpiryActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+resource certExpiryActionGroup 'Microsoft.Insights/actionGroups@2023-01-01' = if (deployAppGateway && !empty(certExpiryNotificationEmails)) {
   name: 'ag-cert-expiry'
   location: 'global'
   properties: {
     enabled: true
     groupShortName: 'CertExpiry'
     emailReceivers: [
-      {
-        name: 'CertExpiryEmail'
-        emailAddress: certExpiryNotificationEmail
+      for (email, i) in certExpiryNotificationEmails: {
+        name: 'CertExpiryEmail-${i}'
+        emailAddress: email
         useCommonAlertSchema: true
       }
     ]
   }
 }
 
-resource kvEventGridTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+resource kvEventGridTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmails)) {
   name: '${keyVaultName}-evgt'
   location: location
   properties: {
@@ -230,7 +262,7 @@ resource kvEventGridTopic 'Microsoft.EventGrid/systemTopics@2025-02-15' = if (de
   }
 }
 
-resource certExpirySubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmail)) {
+resource certExpirySubscription 'Microsoft.EventGrid/systemTopics/eventSubscriptions@2025-02-15' = if (deployAppGateway && !empty(certExpiryNotificationEmails)) {
   parent: kvEventGridTopic
   name: 'cert-near-expiry'
   properties: {

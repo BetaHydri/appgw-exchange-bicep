@@ -82,13 +82,15 @@ Internet
 - **Cross-resource-group** subnet deployment — the VNet can be in a different resource group (same subscription)
 - **Subnet upsert** — the subnet is created if it doesn't exist, or updated if it does
 - **Diagnostic logging** — WAF firewall and access logs sent to a Log Analytics Workspace
-- **Deployment script certificate import** — PFX imported as a proper KV certificate (expiry tracking, Event Grid, easy renewal)
-- **Certificate expiry email notification** (optional) — When `certExpiryNotificationEmail` is provided, the template deploys three additional resources to deliver email alerts 30 days before the certificate expires:
-  - **Action Group** (`ag-cert-expiry`) — defines the email receiver
-  - **Event Grid System Topic** (`<kvName>-evgt`) — listens for events on the Key Vault
-  - **Event Grid Subscription** (`cert-near-expiry`) — filters for `Microsoft.KeyVault.CertificateNearExpiry` events and routes them as Azure Monitor alerts to the action group, which sends the email
+- **Deployment script certificate import** — PFX imported as a proper KV certificate (expiry tracking, Event Grid, easy renewal). Handles both password-protected and password-free PFX files. Idempotent on redeployment (existing contacts are skipped).
+- **Certificate expiry notifications** (optional, dual-layer) — When `certExpiryNotificationEmails` is provided (array of email addresses), the template configures **two independent notification layers**:
+  1. **Key Vault lifetime action** — The deployment script sets the certificate policy to `EmailContacts` 30 days before expiry and registers all emails as Key Vault certificate contacts. This is a **Key Vault-native** mechanism that sends emails directly from the vault (no extra Azure resources needed). The script is idempotent — contacts that already exist are skipped on redeployment.
+  2. **Event Grid + Action Group** — Three additional Azure resources are deployed:
+     - **Action Group** (`ag-cert-expiry`) — one email receiver per address in the array
+     - **Event Grid System Topic** (`<kvName>-evgt`) — listens for events on the Key Vault
+     - **Event Grid Subscription** (`cert-near-expiry`) — filters for `Microsoft.KeyVault.CertificateNearExpiry` events and routes them as Azure Monitor alerts to the action group
 
-  These resources are only deployed when `certExpiryNotificationEmail` is set. Without them, Key Vault fires the expiry event internally but no notification is delivered.
+  Both layers fire independently, providing defense in depth — the ops team gets a direct KV email **and** an Azure Monitor alert. These resources are only deployed when `certExpiryNotificationEmails` is non-empty.
 
 > **Note:** The Application Gateway itself is a Layer 7 load balancer. No separate Azure Load Balancer is deployed or required by this module.
 
@@ -118,7 +120,7 @@ Internet
 | `managedIdentityName` | No | `id-appgw` | Managed Identity name |
 | `keyVaultCertificateName` | No | `exchange-cert` | Certificate name in Key Vault |
 | `wafMode` | No | `Detection` | `Detection` or `Prevention` |
-| `certExpiryNotificationEmail` | No | _(empty)_ | Email to receive certificate expiry notifications (30 days before). Leave empty to skip |
+| `certExpiryNotificationEmails` | No | `[]` | Array of email addresses to receive certificate expiry notifications (30 days before expiry). Example: `['admin@contoso.com', 'ops@contoso.com']`. Leave empty to skip |
 | `deployAppGateway` | No | `true` | Set to `false` to deploy **only** the NSG and subnet (no Key Vault, cert, App GW, or diagnostics) |
 
 > **Tip:** When `deployAppGateway` is set to `false`, the following resources are **not** deployed: Key Vault, Managed Identity, RBAC role assignments, deployment script, Event Grid topic, Log Analytics Workspace, Public IP, WAF Policy, Application Gateway, and diagnostic settings. Only the NSG and subnet association module runs.
@@ -258,7 +260,7 @@ az deployment group create \
     autodiscoverFqdn="autodiscover.contoso.com" \
     sslCertData="$certBase64" \
     sslCertPassword="YourPfxPassword" \
-    certExpiryNotificationEmail="admin@contoso.com"
+    certExpiryNotificationEmails='["admin@contoso.com","ops@contoso.com"]'
 ```
 
 ### 2b. Deploy via PowerShell (Key Vault variant)
@@ -276,7 +278,7 @@ New-AzResourceGroupDeployment `
   -autodiscoverFqdn "autodiscover.contoso.com" `
   -sslCertData $certBase64 `
   -sslCertPassword "YourPfxPassword" `
-  -certExpiryNotificationEmail "admin@contoso.com"
+  -certExpiryNotificationEmails @("admin@contoso.com", "ops@contoso.com")
 ```
 
 ### 2c. Deploy via Azure Portal
@@ -414,7 +416,7 @@ The NSG created on the Application Gateway subnet contains the following **manda
 | Certificate import | Deployment script (`az keyvault certificate import`) | Inline PFX in App GW config |
 | Secret exposure | No secrets in parameter files (secure params) | PFX data + password passed at deploy time |
 | Certificate renewal | AppGW refreshes from KV every 4 hours | Requires redeployment |
-| Expiry notification | Built-in via Event Grid + email (if `certExpiryNotificationEmail` set) | Not available |
+| Expiry notification | Dual-layer: KV lifetime action emails + Event Grid alerts (if `certExpiryNotificationEmails` set) | Not available |
 | Complexity | Moderate (managed identity, RBAC, deployment script) | Lower |
 | Policy compatibility | May conflict with `allowSharedKeyAccess: false` policy (see below) | No restrictions |
 | Recommendation | **Production** | Dev/test only |

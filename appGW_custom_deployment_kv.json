@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.41.2.15936",
-      "templateHash": "14386407588464977065"
+      "templateHash": "1285106576783837802"
     }
   },
   "parameters": {
@@ -126,11 +126,11 @@
         "description": "Password for the PFX certificate. Leave empty if the PFX was exported without a password."
       }
     },
-    "certExpiryNotificationEmail": {
-      "type": "string",
-      "defaultValue": "",
+    "certExpiryNotificationEmails": {
+      "type": "array",
+      "defaultValue": [],
       "metadata": {
-        "description": "Email address to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup."
+        "description": "Array of email addresses to receive certificate expiry notifications (30 days before expiry). Leave empty to skip notification setup."
       }
     },
     "wafMode": {
@@ -230,7 +230,7 @@
         "timeout": "PT10M",
         "environmentVariables": [
           {
-            "name": "KEYVAULT_NAME",
+            "name": "KV_NAME",
             "value": "[parameters('keyVaultName')]"
           },
           {
@@ -244,9 +244,13 @@
           {
             "name": "PFX_PASSWORD",
             "secureValue": "[parameters('sslCertPassword')]"
+          },
+          {
+            "name": "NOTIFY_EMAILS",
+            "value": "[join(parameters('certExpiryNotificationEmails'), ',')]"
           }
         ],
-        "scriptContent": "#!/bin/bash\n      set -e\n      echo \"$PFX_BASE64\" | base64 -d > /tmp/cert.pfx\n      if [ -n \"$PFX_PASSWORD\" ]; then\n        az keyvault certificate import \\\n          --vault-name \"$KEYVAULT_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx \\\n          --password \"$PFX_PASSWORD\"\n      else\n        az keyvault certificate import \\\n          --vault-name \"$KEYVAULT_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx\n      fi\n      rm -f /tmp/cert.pfx\n    "
+        "scriptContent": "      set -e\n      echo \"$PFX_BASE64\" | base64 -d > /tmp/cert.pfx\n      if [ -n \"$PFX_PASSWORD\" ]; then\n        az keyvault certificate import \\\n          --vault-name \"$KV_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx \\\n          --password \"$PFX_PASSWORD\"\n      else\n        az keyvault certificate import \\\n          --vault-name \"$KV_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --file /tmp/cert.pfx\n      fi\n      rm -f /tmp/cert.pfx\n\n      # Configure lifetime action: email notification 30 days before expiry\n      az keyvault certificate set-attributes \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --policy \"$(az keyvault certificate show \\\n          --vault-name \"$KV_NAME\" \\\n          --name \"$CERT_NAME\" \\\n          --query policy -o json | \\\n          jq '.lifetime_actions = [{\"action\":{\"action_type\":\"EmailContacts\"},\"trigger\":{\"days_before_expiry\":30}}]')\"\n\n      # Add notification contacts (skip if already exists to ensure idempotent redeployments)\n      if [ -n \"$NOTIFY_EMAILS\" ]; then\n        EXISTING=$(az keyvault certificate contact list --vault-name \"$KV_NAME\" --query \"[].emailAddress\" -o tsv 2>/dev/null || true)\n        IFS=',' read -ra EMAILS <<< \"$NOTIFY_EMAILS\"\n        for EMAIL in \"${EMAILS[@]}\"; do\n          if echo \"$EXISTING\" | grep -qiF \"$EMAIL\"; then\n            echo \"Contact $EMAIL already exists, skipping.\"\n          else\n            az keyvault certificate contact add \\\n              --vault-name \"$KV_NAME\" \\\n              --email \"$EMAIL\"\n          fi\n        done\n      fi\n\n      SECRET_URI=$(az keyvault certificate show \\\n        --vault-name \"$KV_NAME\" \\\n        --name \"$CERT_NAME\" \\\n        --query sid -o tsv)\n      echo \"{\\\"secretUri\\\": \\\"$SECRET_URI\\\"}\" > $AZ_SCRIPTS_OUTPUT_PATH\n    "
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
@@ -256,25 +260,29 @@
       ]
     },
     {
-      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmails'))))]",
       "type": "Microsoft.Insights/actionGroups",
       "apiVersion": "2023-01-01",
       "name": "ag-cert-expiry",
       "location": "global",
       "properties": {
-        "enabled": true,
-        "groupShortName": "CertExpiry",
-        "emailReceivers": [
+        "copy": [
           {
-            "name": "CertExpiryEmail",
-            "emailAddress": "[parameters('certExpiryNotificationEmail')]",
-            "useCommonAlertSchema": true
+            "name": "emailReceivers",
+            "count": "[length(parameters('certExpiryNotificationEmails'))]",
+            "input": {
+              "name": "[format('CertExpiryEmail-{0}', copyIndex('emailReceivers'))]",
+              "emailAddress": "[parameters('certExpiryNotificationEmails')[copyIndex('emailReceivers')]]",
+              "useCommonAlertSchema": true
+            }
           }
-        ]
+        ],
+        "enabled": true,
+        "groupShortName": "CertExpiry"
       }
     },
     {
-      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmails'))))]",
       "type": "Microsoft.EventGrid/systemTopics",
       "apiVersion": "2025-02-15",
       "name": "[format('{0}-evgt', parameters('keyVaultName'))]",
@@ -288,7 +296,7 @@
       ]
     },
     {
-      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmail'))))]",
+      "condition": "[and(parameters('deployAppGateway'), not(empty(parameters('certExpiryNotificationEmails'))))]",
       "type": "Microsoft.EventGrid/systemTopics/eventSubscriptions",
       "apiVersion": "2025-02-15",
       "name": "[format('{0}/{1}', format('{0}-evgt', parameters('keyVaultName')), 'cert-near-expiry')]",
