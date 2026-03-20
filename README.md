@@ -64,7 +64,7 @@ Internet
 
 | File | Description |
 |------|-------------|
-| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is imported as a proper KV certificate via a deployment script (using `az keyvault certificate import`). The App Gateway retrieves the certificate's backing secret via a managed identity. No explicit storage account — the deployment script service handles it. |
+| `appGW_custom_deployment_kv.bicep` | **Recommended.** Full deployment with Key Vault integration. Certificate is imported as a proper KV certificate via a deployment script (using `az keyvault certificate import`). The App Gateway retrieves the certificate's backing secret via a managed identity. No storage account is defined in the template — Azure automatically provisions a temporary managed storage account behind the scenes for the deployment script container (see [Known Limitations](#known-limitations)). |
 | `appGW_custom_deployment.bicep` | Simpler variant with inline PFX certificate (no Key Vault). Includes `deployAppGateway` toggle to deploy only the NSG/subnet. |
 | `appGW_nsg_subnet_association.bicep` | Shared module: creates the NSG with mandatory AppGW v2 rules and creates (or updates) the subnet. Used by both main templates. |
 | `appGW_custom_deployment_kv.json` | Compiled ARM template of the Key Vault variant. |
@@ -174,7 +174,7 @@ Subscription A                    Subscription B
 | VNet resource group (same subscription) | **Network Contributor** | When VNet is in a different resource group |
 | App Gateway subscription | **User Access Administrator** or **Owner** | To create RBAC role assignments for Key Vault |
 
-The Key Vault variant uses a deployment script (`Microsoft.Resources/deploymentScripts`) to import the PFX as a proper Key Vault certificate. No explicit storage account is created — the deployment script service provisions a managed one automatically.
+The Key Vault variant uses a deployment script (`Microsoft.Resources/deploymentScripts`) to import the PFX as a proper Key Vault certificate. No storage account is defined in the Bicep template itself — however, Azure automatically provisions a temporary managed storage account behind the scenes for the deployment script's container (Azure Container Instances). This auto-provisioned storage account can conflict with Azure Policies that enforce `allowSharedKeyAccess: false` (see [Known Limitations](#known-limitations)).
 
 ### 1. Base64-encode the PFX certificate
 
