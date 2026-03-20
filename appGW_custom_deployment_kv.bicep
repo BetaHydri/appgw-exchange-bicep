@@ -212,7 +212,7 @@ print(json.dumps(policy))
 
       # Add notification contacts (skip if already exists to ensure idempotent redeployments)
       if [ -n "$NOTIFY_EMAILS" ]; then
-        EXISTING=$(az keyvault certificate contact list --vault-name "$KV_NAME" --query "[].emailAddress" -o tsv 2>/dev/null || true)
+        EXISTING=$(az keyvault certificate contact list --vault-name "$KV_NAME" --query "contactList[].emailAddress" -o tsv 2>/dev/null || true)
         IFS=',' read -ra EMAILS <<< "$NOTIFY_EMAILS"
         for EMAIL in "${EMAILS[@]}"; do
           if echo "$EXISTING" | grep -qiF "$EMAIL"; then
