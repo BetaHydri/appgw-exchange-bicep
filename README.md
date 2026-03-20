@@ -359,15 +359,16 @@ az keyvault certificate import `
    $policy = az keyvault certificate show `
      --vault-name "kv-appgw-xxxx" `
      --name "exchange-cert" `
-     --query policy -o json | jq '.lifetime_actions = [{"action":{"action_type":"EmailContacts"},"trigger":{"days_before_expiry":30}}]'
+     --query policy -o json | ConvertFrom-Json
+
+   $policy.lifetime_actions = @(@{action=@{action_type="EmailContacts"};trigger=@{days_before_expiry=30}})
+   $policyJson = $policy | ConvertTo-Json -Depth 10 -Compress
 
    az keyvault certificate set-attributes `
      --vault-name "kv-appgw-xxxx" `
      --name "exchange-cert" `
-     --policy "$policy"
+     --policy $policyJson
    ```
-
-   > **Note:** This step requires `jq` to be installed. On Windows, install via `winget install jqlang.jq` or `choco install jq`.
 
 4. **Redeploy the same template without providing `sslCertData`** (leave it empty). Since `sslCertData` is empty, the deployment script is **automatically skipped**, so the `allowSharedKeyAccess` policy will not block the deployment. The Application Gateway and all remaining resources will be created using the certificate you imported manually.
 
