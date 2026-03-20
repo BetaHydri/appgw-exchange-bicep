@@ -167,7 +167,7 @@ resource importCertScript 'Microsoft.Resources/deploymentScripts@2023-08-01' = i
     }
   }
   properties: {
-    azCliVersion: '2.67.0'
+    azCliVersion: '2.64.0'
     retentionInterval: 'PT1H'
     timeout: 'PT10M'
     environmentVariables: [
