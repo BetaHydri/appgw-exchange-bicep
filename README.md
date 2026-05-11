@@ -484,6 +484,87 @@ The Key Vault variant uses a `Microsoft.Resources/deploymentScripts` resource to
 
 ---
 
+## Troubleshooting
+
+### Azure Advisor: "Use version-less Key Vault secret identifier"
+
+**Symptom:** Azure Advisor shows a high-impact recommendation:
+
+> *Use version-less Key Vault secret identifier to reference the certificates*
+
+You can verify this by inspecting the deployed Application Gateway's SSL certificate configuration in the Azure Portal (under **Listeners** or via CLI). The stored `keyVaultSecretId` contains a versioned URI with a GUID suffix, e.g.:
+
+```text
+https://byclte-kv-appgw.vault.azure.net/secrets/exchange-cert/0357e808009742ec89d3ac19425429f6
+                                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                               ↑ version GUID — must be removed
+```
+
+The correct (version-less) URI should be:
+
+```text
+https://byclte-kv-appgw.vault.azure.net/secrets/exchange-cert
+```
+
+**Cause:** The Bicep template already constructs a version-less URI (`…/secrets/exchange-cert`), but ARM resolves it to a specific version at deployment time and persists that in the resource state. Azure Advisor flags this stored versioned URI. This prevents the Application Gateway from automatically picking up renewed certificate versions.
+
+**Fix — Option A: Update the certificate reference via CLI** (quickest, no redeployment):
+
+```bash
+az network application-gateway ssl-cert update \
+  --resource-group <your-rg> \
+  --gateway-name appgw-exchange \
+  --name exchange-cert \
+  --key-vault-secret-id "https://<your-kv-name>.vault.azure.net/secrets/exchange-cert"
+```
+
+> **Important:** The `--key-vault-secret-id` value must end at the certificate name — no version GUID suffix. This ensures the App Gateway auto-rotates to the latest certificate version on renewal (polled every 4 hours).
+
+> **Note:** This command requires **Contributor** (or **Network Contributor**) on the resource group. If you get an `AuthorizationFailed` error, see the [next troubleshooting entry](#authorizationfailed-when-running-az-network-application-gateway-commands).
+
+**Fix — Option B: Redeploy the template** (no code changes needed):
+
+```bash
+az deployment group create \
+  --resource-group <your-rg> \
+  --template-file appGW_custom_deployment_kv.bicep \
+  --parameters <your-params-file>
+```
+
+The Advisor recommendation should clear within a few hours after either fix.
+
+### `AuthorizationFailed` when running `az network application-gateway` commands
+
+**Symptom:**
+
+```text
+(AuthorizationFailed) The client '...' does not have authorization to perform action
+'Microsoft.Network/applicationGateways/read' over scope '...' or the scope is invalid.
+```
+
+**Cause:** Being a **Global Admin** (Entra ID role) does **not** grant Azure Resource Manager (ARM) permissions. You need an explicit Azure RBAC role assignment on the subscription or resource group.
+
+**Fix:**
+
+1. Assign yourself **Contributor** on the resource group:
+
+   ```bash
+   az role assignment create \
+     --assignee "<your-object-id-or-upn>" \
+     --role "Contributor" \
+     --scope "/subscriptions/<sub-id>/resourceGroups/<rg-name>"
+   ```
+
+2. If that also fails (no permission to assign roles), **elevate via Entra ID** first:
+   - Azure Portal → **Entra ID** → **Properties** → **Access management for Azure resources** → toggle to **Yes** → **Save**
+   - This grants **User Access Administrator** at the root `/` scope
+   - Run the `az role assignment create` command above
+   - Toggle the setting back to **No** when done
+
+3. Wait ~1–2 minutes for propagation, then retry.
+
+---
+
 ## Rebuilding the ARM Templates
 
 After editing any `.bicep` file, regenerate the compiled JSON:
